@@ -31,7 +31,7 @@ A sophisticated AI-powered geometric calculator that computes volumes, surface a
 
 ## 📋 Prerequisites ✅ CONFIGURED
 
-### ✅ Required Packages (All Installed)
+### ✅ Required Packages 
 ```bash
 pip install openai python-dotenv numpy scipy
 ```
@@ -41,7 +41,7 @@ Or if using uv:
 uv add openai python-dotenv numpy scipy
 ```
 
-### ✅ Environment Variables (Configured)
+### ✅ Environment Variables 
 Create a `.env` file in the project directory with:
 ```env
 BUDWISE_ENDPOINT=your_azure_openai_endpoint
