@@ -396,7 +396,8 @@ def get_completion_from_messages(messages, model="gpt-4o"):
 if __name__ == "__main__":
     messages = [
         {"role": "system", "content": "You are a helpful AI assistant that can perform mathematical calculations and geometric computations for 2D and 3D shapes."},
-        {"role": "user", "content": "What is the volume of a sphere with radius of 3mm?"},
+        # {"role": "user", "content": "What is the volume of a sphere with radius of 1mm?"},
+        {"role": "user", "content": "What is the surface of a 3D cube with side of 1.1mm?"},
     ]
 
     response = get_completion_from_messages(messages)
