@@ -1,64 +1,127 @@
-import requests
+import os
 import json
+from openai import OpenAI
+from pprint import pprint
+from dotenv import load_dotenv
 
-# Konfigurace LLM API (nahraďte skutečnými údaji)
-LLM_API_URL = "https://example.com/llm/api"
-API_KEY = "vase_api_klíč"
+# Load environment variables
+load_dotenv()
 
-# Funkce pro výpočet (v tomto případě jednoduchý kalkulátor)
-def vypocitej(vyraz):
+from openai import AzureOpenAI  # My addition
+client = AzureOpenAI(
+    api_version="2025-01-01-preview",
+    azure_endpoint=os.environ.get("AZURE_ENDPOINT"),
+    # azure_deployment="gpt-4o-mini-deployment",
+    azure_ad_token=os.environ.get("AZURE_OPENAI_API_KEY")
+)
+
+# Function Implementations
+def calculate(expression: str):
     """
-    Provede výpočet na zadaném výrazu.
+    Performs calculation on the given expression.
     """
     try:
-        vysledek = eval(vyraz)  # Používejte eval s opatrností!
-        return str(vysledek)
+        result = eval(expression)  # Use eval with caution!
+        return {"expression": expression, "result": str(result)}
     except (SyntaxError, NameError, TypeError) as e:
-        return f"Chyba ve výpočtu: {e}"
+        return {"expression": expression, "error": f"Calculation error: {e}"}
 
-# Funkce pro volání LLM API
-def zavolej_llm(prompt, nastroje):
-    """
-    Volá LLM API s daným promptem a seznamem nástrojů.
-    """
-    hlavicky = {
-        "Authorization": f"Bearer {API_KEY}",
-        "Content-Type": "application/json"
-    }
-
-    data = {
-        "prompt": prompt,
-        "nastroje": nastroje
-    }
-
-    try:
-        response = requests.post(LLM_API_URL, headers=hlavicky, data=json.dumps(data))
-        response.raise_for_status()  # Vyvolá výjimku pro špatné status kódy
-        odpoved = response.json()
-        return odpoved
-    except requests.exceptions.RequestException as e:
-        print(f"Chyba při volání LLM API: {e}")
-        return None
-
-# Hlavní část skriptu
-if __name__ == "__main__":
-    # Příklad promptu, který vyžaduje použití nástroje
-    prompt = "Kolik je 2 + 2 * 3?"
-
-    # Definice nástroje (v tomto případě funkce 'vypocitej')
-    nastroje = {
-        "vypocitej": {
-            "popis": "Provede matematický výpočet.",
-            "parametry": {
-                "vyraz": "Matematický výraz k vyhodnocení."
-            }
+# Define custom tools
+tools = [
+    {
+        "type": "function",
+        "function": {
+            "name": "calculate",
+            "description": "Performs mathematical calculation on a given expression.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "expression": {
+                        "type": "string",
+                        "description": "Mathematical expression to evaluate, e.g. '2 + 2 * 3'",
+                    }
+                },
+                "required": ["expression"],
+            },
         }
-    }
+    },
+]
 
-    # Volání LLM API
-    odpoved = zavolej_llm(prompt, nastroje)
+available_functions = {
+    "calculate": calculate,
+}
 
-    if odpoved:
-        print("Odpověď LLM:")
-        print(odpoved["text"])  # Předpokládá se, že odpověď obsahuje 'text'
-```
+# Function to process messages and handle function calls
+def get_completion_from_messages(messages, model="gpt-4o"):
+    response = client.chat.completions.create(
+        model=model,
+        messages=messages,
+        tools=tools,  # Custom tools
+        tool_choice="auto"  # Allow AI to decide if a tool should be called
+    )
+
+    response_message = response.choices[0].message
+
+    print("First response:", response_message)
+
+    if response_message.tool_calls:
+        # Find the tool call content
+        tool_call = response_message.tool_calls[0]
+
+        # Extract tool name and arguments
+        function_name = tool_call.function.name
+        function_args = json.loads(tool_call.function.arguments)
+        tool_id = tool_call.id
+        
+        # Call the function
+        function_to_call = available_functions[function_name]
+        function_response = function_to_call(**function_args)
+
+        print(function_response)
+
+        messages.append({
+            "role": "assistant",
+            "tool_calls": [
+                {
+                    "id": tool_id,
+                    "type": "function",
+                    "function": {
+                        "name": function_name,
+                        "arguments": json.dumps(function_args),
+                    }
+                }
+            ]
+        })
+        messages.append({
+            "role": "tool",
+            "tool_call_id": tool_id,
+            "name": function_name,
+            "content": json.dumps(function_response),
+        })
+
+        # Second call to get final response based on function output
+        second_response = client.chat.completions.create(
+            model=model,
+            messages=messages,
+            tools=tools,
+            tool_choice="auto"
+        )
+        final_answer = second_response.choices[0].message
+
+        print("Second response:", final_answer)
+        return final_answer
+
+    return "No relevant function call found."
+
+# Example usage
+if __name__ == "__main__":
+    messages = [
+        {"role": "system", "content": "You are a helpful AI assistant that can perform mathematical calculations."},
+        {"role": "user", "content": "What is 52 * 0 + 2 * 3?"},
+    ]
+
+    response = get_completion_from_messages(messages)
+    print("--- Full response: ---")
+    pprint(response)
+    print("--- Response text: ---")
+    print(response.content)
