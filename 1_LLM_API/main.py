@@ -397,7 +397,8 @@ if __name__ == "__main__":
     messages = [
         {"role": "system", "content": "You are a helpful AI assistant that can perform mathematical calculations and geometric computations for 2D and 3D shapes."},
         # {"role": "user", "content": "What is the volume of a sphere with radius of 1mm?"},
-        {"role": "user", "content": "What is the surface of a 3D cube with side of 1.1mm?"},
+        # {"role": "user", "content": "What is the surface of a 3D cube with side of 1.1mm?"},
+        {"role": "user", "content": "Calculate the volume of a shape defined by these 5 points in 3D space: [[0,0,0], [2,0,0], [0,2,0], [0,0,2], [1,1,1]]"},
     ]
 
     response = get_completion_from_messages(messages)
@@ -405,4 +406,3 @@ if __name__ == "__main__":
     pprint(response)
     print("--- Response text: ---")
     print(response.content)
-
