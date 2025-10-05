@@ -1,5 +1,5 @@
 {
-  "name": "MongoDBCR",
+  "name": "n8nmemoryDBnewsRSS",
   "nodes": [
     {
       "parameters": {
@@ -134,7 +134,7 @@
       "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
       "typeVersion": 1,
       "position": [
-        -304,
+        -288,
         816
       ],
       "id": "fb4ad636-0e39-428a-85c5-c31802bc54a2",
@@ -175,16 +175,14 @@
       "name": "Etherum"
     },
     {
-      "parameters": {
-        "contextWindowLength": 10
-      },
+      "parameters": {},
       "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
       "typeVersion": 1.3,
       "position": [
-        -176,
-        848
+        -128,
+        896
       ],
-      "id": "f478ff92-5059-4347-9154-754caeb424f9",
+      "id": "a738cb1e-6fdc-4694-8bb5-69bfa6f9fc23",
       "name": "Simple Memory"
     },
     {
@@ -192,7 +190,8 @@
         "rule": {
           "interval": [
             {
-              "triggerAtHour": 9
+              "triggerAtHour": 9,
+              "triggerAtMinute": 5
             }
           ]
         }
@@ -204,7 +203,7 @@
         752
       ],
       "id": "8f077580-9095-4eee-9879-e33084458680",
-      "name": "Run every day at 9AM",
+      "name": "Run every day at 9:05AM",
       "notesInFlow": true,
       "notes": "Double-click to open"
     }
@@ -299,7 +298,7 @@
         ]
       ]
     },
-    "Run every day at 9AM": {
+    "Run every day at 9:05AM": {
       "main": [
         [
           {
@@ -313,7 +312,7 @@
   },
   "active": true,
   "settings": {},
-  "versionId": "1acf1a47-0d10-4314-a4c9-b8b95352e906",
+  "versionId": "abdec1cc-8577-4c2b-b734-0168d488fc8b",
   "meta": {
     "templateId": "ready-to-run-ai-workflow-v2",
     "templateCredsSetupCompleted": true,
