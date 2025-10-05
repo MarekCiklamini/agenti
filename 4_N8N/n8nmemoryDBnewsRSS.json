@@ -103,7 +103,7 @@
     },
     {
       "parameters": {
-        "sendTo": "marek.ciklamini@cz.bosch.com",
+        "sendTo": <receiver>@<name>.com
         "subject": "Your news CRY daily summary",
         "emailType": "text",
         "message": "={{ $json.output }}",
