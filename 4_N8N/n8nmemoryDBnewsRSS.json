@@ -4,14 +4,14 @@
     {
       "parameters": {
         "toolDescription": "Reads the news",
-        "url": "=https://cointelegraph.com/rss/tag/ethereum",
+        "url": "=https://www.yahoo.com/news/rss",
         "options": {}
       },
       "type": "n8n-nodes-base.rssFeedReadTool",
       "typeVersion": 1.2,
       "position": [
         48,
-        1008
+        1040
       ],
       "id": "a9260bcb-9dab-4601-a3d6-a701eab1fa76",
       "name": "Get World News"
@@ -103,7 +103,7 @@
     },
     {
       "parameters": {
-        "sendTo": <receiver>@<name>.com
+        "sendTo": "marek.ciklamini@cz.bosch.com",
         "subject": "Your news CRY daily summary",
         "emailType": "text",
         "message": "={{ $json.output }}",
@@ -148,39 +148,11 @@
     },
     {
       "parameters": {
-        "url": "https://cointelegraph.com/rss/tag/bitcoin",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.rssFeedReadTool",
-      "typeVersion": 1.2,
-      "position": [
-        -112,
-        992
-      ],
-      "id": "de431690-c764-4a85-b49e-5aeec7141a35",
-      "name": "Get BTC News"
-    },
-    {
-      "parameters": {
-        "url": "https://cointelegraph.com/rss/tag/bitcoin",
-        "options": {}
-      },
-      "type": "n8n-nodes-base.rssFeedReadTool",
-      "typeVersion": 1.2,
-      "position": [
-        224,
-        960
-      ],
-      "id": "f2a53632-3052-484d-b5cc-f940541c4b38",
-      "name": "Etherum"
-    },
-    {
-      "parameters": {
         "rule": {
           "interval": [
             {
-              "triggerAtHour": 9,
-              "triggerAtMinute": 40
+              "triggerAtHour": 10,
+              "triggerAtMinute": 11
             }
           ]
         }
@@ -209,6 +181,35 @@
       ],
       "id": "485f36cf-cec9-4585-bbcc-659b39691f1a",
       "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "toolDescription": "Reads data from an BTC RSS Feed",
+        "url": "https://cointelegraph.com/rss/tag/bitcoin",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.rssFeedReadTool",
+      "typeVersion": 1.2,
+      "position": [
+        224,
+        960
+      ],
+      "id": "f2a53632-3052-484d-b5cc-f940541c4b38",
+      "name": "BTC RSS"
+    },
+    {
+      "parameters": {
+        "url": "https://cointelegraph.com/rss/tag/ethereum",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.rssFeedReadTool",
+      "typeVersion": 1.2,
+      "position": [
+        -112,
+        992
+      ],
+      "id": "de431690-c764-4a85-b49e-5aeec7141a35",
+      "name": "ETH RSS"
     }
   ],
   "pinData": {},
@@ -268,28 +269,6 @@
         ]
       ]
     },
-    "Get BTC News": {
-      "ai_tool": [
-        [
-          {
-            "node": "AI Summary Agent",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
-    "Etherum": {
-      "ai_tool": [
-        [
-          {
-            "node": "AI Summary Agent",
-            "type": "ai_tool",
-            "index": 0
-          }
-        ]
-      ]
-    },
     "Run every day at 9:05AM": {
       "main": [
         [
@@ -311,11 +290,33 @@
           }
         ]
       ]
+    },
+    "BTC RSS": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Summary Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "ETH RSS": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Summary Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
     }
   },
   "active": true,
   "settings": {},
-  "versionId": "35cdb672-4cf3-4a55-8f76-9ddd08603856",
+  "versionId": "906d0004-eb74-4a6b-ab5f-a57e3412717d",
   "meta": {
     "templateId": "ready-to-run-ai-workflow-v2",
     "templateCredsSetupCompleted": true,
