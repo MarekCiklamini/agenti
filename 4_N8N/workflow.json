@@ -1,0 +1,324 @@
+{
+  "name": "MongoDBCR",
+  "nodes": [
+    {
+      "parameters": {
+        "toolDescription": "Reads the news",
+        "url": "=https://cointelegraph.com/rss/tag/ethereum",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.rssFeedReadTool",
+      "typeVersion": 1.2,
+      "position": [
+        128,
+        832
+      ],
+      "id": "a9260bcb-9dab-4601-a3d6-a701eab1fa76",
+      "name": "Get World News"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "85b5c530-2c13-4424-ab83-05979bc879a5",
+              "name": "output",
+              "value": "={{ $json.output }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        160,
+        544
+      ],
+      "id": "39792198-09c8-409c-bf9c-95f0b69d7b28",
+      "name": "Output",
+      "notesInFlow": true,
+      "notes": "Double-click to open"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -560,
+        544
+      ],
+      "id": "f8447799-c30a-46ed-bdc6-87f05e253808",
+      "name": "Click ‘Execute workflow’ to run"
+    },
+    {
+      "parameters": {
+        "content": "## ⚡ Start here:",
+        "height": 224,
+        "width": 224,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        -624,
+        480
+      ],
+      "id": "30c64502-5216-49aa-b299-bda5b362ed67",
+      "name": "Sticky Note"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Summarize Bitcoin, Etherum news and tech news from the last 24 hours. \nSummary will be fitting to 500 words.\nSkip your comments. \nMake your statement on situation from economy dynamic\nThe titles should be \"World news:\" and \"Tech news:\" \nToday is {{ $today }}",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        -272,
+        544
+      ],
+      "id": "86f64bf9-e115-4d7e-80ca-89f296771f3e",
+      "name": "AI Summary Agent",
+      "notesInFlow": true,
+      "notes": "Double-click to open"
+    },
+    {
+      "parameters": {
+        "content": "### Double click here to see the results:",
+        "height": 240,
+        "width": 192,
+        "color": 7
+      },
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [
+        112,
+        464
+      ],
+      "id": "9e56519b-7a99-47e3-886b-82e85216da8d",
+      "name": "Sticky Note1"
+    },
+    {
+      "parameters": {
+        "sendTo": "marek.ciklamini@cz.bosch.com",
+        "subject": "Your news CRY daily summary",
+        "emailType": "text",
+        "message": "={{ $json.output }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [
+        432,
+        544
+      ],
+      "id": "be3ba6ec-bd61-45d3-afc3-70b1aeb92ff9",
+      "name": "Send summary by email",
+      "webhookId": "4b56cfa1-ce58-46c6-9d44-a7c3ba847ba4",
+      "notesInFlow": true,
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "u4qJ70uG7yHXnYMS",
+          "name": "Gmail account"
+        }
+      },
+      "notes": "Double-click to open"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.lmChatGoogleGemini",
+      "typeVersion": 1,
+      "position": [
+        -304,
+        816
+      ],
+      "id": "fb4ad636-0e39-428a-85c5-c31802bc54a2",
+      "name": "Google Gemini Chat Model",
+      "credentials": {
+        "googlePalmApi": {
+          "id": "PFVe2T02cQxkl5YA",
+          "name": "Google Gemini(PaLM) Api account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "url": "https://cointelegraph.com/rss/tag/bitcoin",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.rssFeedReadTool",
+      "typeVersion": 1.2,
+      "position": [
+        -16,
+        816
+      ],
+      "id": "de431690-c764-4a85-b49e-5aeec7141a35",
+      "name": "Get BTC News"
+    },
+    {
+      "parameters": {
+        "url": "https://cointelegraph.com/rss/tag/bitcoin",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.rssFeedReadTool",
+      "typeVersion": 1.2,
+      "position": [
+        320,
+        816
+      ],
+      "id": "f2a53632-3052-484d-b5cc-f940541c4b38",
+      "name": "Etherum"
+    },
+    {
+      "parameters": {
+        "contextWindowLength": 10
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.3,
+      "position": [
+        -176,
+        848
+      ],
+      "id": "f478ff92-5059-4347-9154-754caeb424f9",
+      "name": "Simple Memory"
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -560,
+        752
+      ],
+      "id": "8f077580-9095-4eee-9879-e33084458680",
+      "name": "Run every day at 9AM",
+      "notesInFlow": true,
+      "notes": "Double-click to open"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Get World News": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Summary Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Click ‘Execute workflow’ to run": {
+      "main": [
+        [
+          {
+            "node": "AI Summary Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Summary Agent": {
+      "main": [
+        [
+          {
+            "node": "Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Output": {
+      "main": [
+        [
+          {
+            "node": "Send summary by email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Gemini Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Summary Agent",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get BTC News": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Summary Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Etherum": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Summary Agent",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Simple Memory": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Summary Agent",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run every day at 9AM": {
+      "main": [
+        [
+          {
+            "node": "AI Summary Agent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {},
+  "versionId": "1acf1a47-0d10-4314-a4c9-b8b95352e906",
+  "meta": {
+    "templateId": "ready-to-run-ai-workflow-v2",
+    "templateCredsSetupCompleted": true,
+    "instanceId": "68238dd61815db65b7980021785efd4a27e336a1b30107df2e6e10651fccd1e0"
+  },
+  "id": "FoG6xCb6UgD3gTZt",
+  "tags": []
+}
