@@ -4,6 +4,3 @@ na dotazy přes LLM.
 ## Forma odevzdání:
 Vypracovaný úkol odevzdejte ve formě JSON souboru s definicí workflow. JSON
 soubor odevzdejte v Google Classroom.
-
-### Qdrant 6333 
-### Azure OpenAI
