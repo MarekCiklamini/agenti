@@ -1,30 +1,81 @@
-# Mars Terraforming — LangGraph + MCP + Tavily + Azure OpenAI
+# Mars Terraforming — LangGraph + MCP (Qdrant DB tools ) + Tavily + Azure OpenAI
 
-A minimal, end-to-end agent pipeline that plans and executes a Mars terraforming analysis using:
+A tiny, focused pilot that runs a **LangGraph** pipeline for Mars terraforming analysis, using **Azure OpenAI** (or **Gemini**) with **Tavily** search and a local **MCP** server for memory (Qdrant) and storage.
 
-LangGraph state machine (Planner → Atmospheric → Resources → Habitat)
+## What it does
+- Builds a 3‑step graph: **Atmospheric → Resources → Habitat**.
+- Each node: calls LLM, optionally uses **Tavily** as a tool, and pulls prior knowledge via **MCP** (`fetch_from_qdb`).
+- Final habitat plan is stored via **MCP** (`add_documents`) to Qdrant.
+- Exports a graph image: `mars_terraforming_graph.png`.
 
-Azure OpenAI (chat model) with Tavily web search bound as a tool
+## Requirements
+- Python **3.10+**
+- **MCP server** at `http://localhost:8001/mcp` with tools:
+  - `initialize_qdrant`, `fetch_from_qdb`, `add_documents`
+- **Azure OpenAI** (chat) **or Gemini** access
+- **Tavily** API key
 
-A local MCP server for knowledge/memory & delivery:
+## Install
+```bash
+python -m venv .venv && source .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -U python-dotenv langgraph langchain-openai langchain-google-genai   langchain-community tavily-python requests typing_extensions
+```
 
-initialize_qdrant, fetch_from_qdb, add_documents
+## Environment
+Create `.env`:
+```env
+# Azure OpenAI (default in code)
+ENDPOINT=https://YOUR-AZURE-OPENAI-ENDPOINT
+AZURE_OPENAI_API_KEY=your-azure-key
 
-Optional swap-in for Gemini via ChatGoogleGenerativeAI
+# Tavily search
+TAVILY_API_KEY=your-tavily-key
 
-Auto-visualization of the graph (visualize(...) → mars_terraforming_graph.png)
+# Optional: Gemini
+GOOGLE_API_KEY=your-gemini-key
+# or GEMINI_API_KEY=your-gemini-key
+```
 
-The pipeline:
+> Note: The script constructs `AzureChatOpenAI` with `api_version="2025-01-01-preview"`, `azure_endpoint=BUDWISE_ENDPOINT`, and `azure_ad_token=AZURE_OPENAI_API_KEY`.
 
-Initializes an MCP session
+## Run MCP server for tools 
+```bash
+uv run mcp-server-mars.py
+```
 
-Builds a 3-node graph: Atmospheric → Resource → Habitat
+## Run research workflow
+```bash
+uv run main.py
+```
+You should see MCP session init, Qdrant init, then printed sections:
+- **Atmospheric Analysis**
+- **Resource Assessment**
+- **Habitat Infrastructure**
 
-Each node uses LLM + Tavily (as a tool) + MCP memory
+## Switch to Gemini (optional)
+Replace LLM init:
+```python
+from langchain_google_genai import ChatGoogleGenerativeAI
+import os
+llm = ChatGoogleGenerativeAI(
+  model="gemini-2.5-flash",
+  google_api_key=os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY"),
+  temperature=0.3,
+)
+```
 
-Final plan is stored back via MCP (add_documents)
+## Minimal flow
+1. `initialize_mcp_session()` → captures `mcp-session-id`.
+2. `initialize_qdrant` via MCP.
+3. Build graph → invoke with `terraforming_plan`.
+4. Nodes: fetch prior knowledge (MCP), tool-call Tavily if needed, finalize with LLM.
+5. Store final habitat plan via `add_documents`.
 
-Prints structured results to the console
+## Quick tips
+- If MCP fails to return `mcp-session-id`, start or fix the server.
+- Ensure Tavily key is set; otherwise tool calls will fail.
+- If you use API key auth (not AAD) for Azure, you can set `api_key=` in the model init as needed.
+
 
 # possible output document to qdrant db via mcp 
 ============================================================
@@ -238,3 +289,328 @@ Efforts to terraform around Olympus Mons will align with the habitat’s develop
 ---
 
 Would you like specific details on modeling energy requirements or rollout strategies?
+
+
+### logs example 
+
+🚀 Running Mars Terraforming Analysis...
+🔍 AtmosphericNode: Calling LLM with search...
+🔍 AtmosphericNode: 2 tool call(s) made
+✅ AtmosphericNode: Web search completed
+✅ AtmosphericNode: Web search completed
+🔍 ResourceNode: Calling LLM with search...
+🔍 ResourceNode: 5 tool call(s) made
+✅ ResourceNode: Web search completed
+✅ ResourceNode: Web search completed
+✅ ResourceNode: Web search completed
+✅ ResourceNode: Web search completed
+✅ ResourceNode: Web search completed
+🔍 HabitatNode: Calling LLM with search...
+🔍 HabitatNode: 2 tool call(s) made
+✅ HabitatNode: Web search completed
+✅ HabitatNode: Web search completed
+✅ HabitatNode: Plan stored in MCP database
+
+============================================================
+🌍 MARS TERRAFORMING COMPLETE ANALYSIS
+============================================================
+📋 Plan: Olympus Mons Base Establishment
+
+🌫️ ATMOSPHERIC ANALYSIS:
+### Detailed Atmospheric Conversion Analysis for Mars Terraforming
+
+Mars' atmospheric conversion requires systematic changes to its current atmosphere to support a breathable pressure, increase temperature, and establish favorable conditions for life. Here is the analysis:
+
+---
+
+### **1. Current Atmospheric Composition**
+Mars' atmosphere is extremely thin, with a pressure of only approximately **0.6 kPa (~0.006 bar)**, compared to Earth's 101.3 kPa. The gas composition is as follows:
+
+- **Carbon Dioxide (CO₂):** ~95-95.3%
+- **Nitrogen (N₂):** ~3%
+- **Argon (Ar):** ~1.6%
+- **Others (trace gases):** Oxygen (O₂), Carbon Monoxide (CO), Water Vapor (H₂O), Methane (CH₄), etc., all in very low concentrations.
+
+Source: [Mars Education - Arizona State University](https://marsed.asu.edu/mep/atmosphere).
+
+---
+
+### **2. Required Greenhouse Gas Releases**
+To terraform Mars, greenhouse gases must be introduced to trap heat, increase surface temperature, and eventually enhance pressure. The most efficient gases for Mars include:
+
+#### **Key Greenhouse Gases:**
+1. **Carbon Dioxide (CO₂):** Already present at high levels.
+   - Must liberate additional CO₂ from polar ice caps and subsurface regolith to enhance atmospheric density and trapping of heat.
+
+2. **Water Vapor (H₂O):**
+   - Enhance atmospheric temperatures with evaporated water—which acts as a greenhouse gas when vaporized.
+
+3. **Fluorine-based Compounds:**
+   - Highly efficient **super-greenhouse gases** like **sulfur hexafluoride (SF₆)**, **perfluorocarbons (PFCs)**, and **chlorofluorocarbons (CFCs)**.
+   - These have high **radiative forcing** and are long-lived in Mars’ environment due to low UV breakdown.
+
+4. **Ammonia (NH₃):**
+   - Potentially imported from gas-rich asteroids or synthesized; it increases pressure and acts as a strong greenhouse gas.
+
+5. **Methane (CH₄):**
+   - A potent greenhouse gas but less long-lived due to photochemical breakdown. It can be gradually released/digested through engineered bioreactors.
+
+Sources: [Terraforming of Mars - Wikipedia](https://en.wikipedia.org/wiki/Terraforming_of_Mars), [Marspedia](https://marspedia.org/).
+
+---
+
+### **3. Timeline for Atmospheric Thickening**
+
+#### **Phase 1: Short-term (0-100 Years)**
+- Generate localized atmospheric effects around Olympus Mons using targeted heat sources (e.g., mirrors, microbial methanogenesis).
+- Release stored CO₂ from Mars' regolith.
+  - Estimated increase in pressure: Up to **7-15 kPa**.
+
+#### **Phase 2: Intermediate (100-500 Years)**
+- Introduce **industrial-scale chlorofluorocarbon (CFC)** plants for atmospheric warming via PFCs and SF₆.
+- Sublimate CO₂ from polar ice caps using space mirrors and process trapped CO₂ in regolith.
+  - Estimated increase in pressure: **30-50 kPa**.
+  - Surface temperature increase to: ~ -20°C to 0°C (from baseline ~-60°C).
+
+#### **Phase 3: Long-term (500-1,000+ Years)**
+- Progress to **semi-open ecosystems** as atmospheric density reaches approx. **90-100 kPa**.
+- Rely on surface photosynthetic activity and biological processes to stabilize nitrogen-based breathable atmosphere near Earth's levels (~78% N₂, 21% O₂).
+  - Atmospheric pressure targets **>100 kPa (Earth-matching) by Year 1,000+**.
+
+---
+
+### **4. Target Atmospheric Pressure and Temperature**
+
+#### **Pressure Goals:**
+- **Phase 1 Pressure Target:** ~7-15 kPa (for localized semi-open zones).
+- **Phase 2 Pressure Target:** ~30-50 kPa (allowing minimal open living in suits with limited pressure assist).
+- **Final Target:** ~100-120 kPa (~1 bar).
+
+#### **Temperature Goals:**
+- Baseline: Mars’ average surface temperature is ~**-63°C**.
+- Goal for habitability:
+  - **Phase 1:** Increase by 10-20°C to reach **~-40°C** by primarily sublimating CO₂.
+  - **Phase 2:** Raise surface temperature beyond **0°C**, melting subsurface ice for liquid water.
+  - **Final Target:** Achieve **Earth-like averages (~15°C)** via super greenhouse gases, a thickened atmosphere, and photosynthetic processes.
+
+### **Summary Timeline for Terraforming**
+| **Phase**               | **GOALS**                                                        | **Pressure (kPa)** | **Surface Temp (°C)** | **Major Activities/Technologies**             
+                                                                      |
+|-------------------------|------------------------------------------------------------------|-------------------|-----------------------|------------------------------------------------------------------------------------------------------|
+| **Phase 1 (0–100 yrs)** | Sublimate polar CO₂ and install CFC emission generators         | 7-15 kPa          | -50°C to -40°C        | Space mirrors, robotic excavation, regolith CO₂ liberation, localized super GHG use.                |
+| **Phase 2 (100–500 yrs)**| Intermediate warming & pressure rise                           | 30-50 kPa         | -20°C to 5°C          | Advanced greenhouse gas production (PFCs/CFCs), ammonia import, early agricultural zones expansion.  |
+| **Phase 3 (500-1,000+)**| Fully habitable, semi-open ecosystems                           | Near 1 bar        | ~15°C                 | Self-regulation, Earth-like pressure and breathable N₂+O₂ atmosphere through biological control.     |
+
+This concerted atmospheric intervention will render Mars a habitable frontier capable of supporting permanent colonies, sustainable agriculture, and human civilization. All steps hinge on technological innovation and sustained effort to achieve the desired habitability goals.
+
+💧 RESOURCE ASSESSMENT:
+### Comprehensive Resource Assessment for Olympus Mons Base and Terraforming Efforts:
+
+---
+
+### **1. Water Ice Locations and Extraction Methods**
+#### **Water Ice Locations:**
+- **Subsurface Water Ice Mapping**: NASA's "SWIM Map" shows extensive subsurface water ice deposits from the equator to 60 degrees north latitude. These are critical for sustaining water supplies. ([SWIM Map Shows Subsurface Water Ice on Mars - NASA](https://science.nasa.gov/resource/swim-map-shows-subsurface-water-ice-on-mars/))
+- **High-value Regions near Olympus Mons**: Research suggests water-rich regolith may exist at lower latitudes in volcanic regions, including slopes of Olympus Mons.
+
+#### **Extraction Methods:**
+1. **Subsurface Heating and Ice Extraction**:
+   - Heating regolith to sublimate ice followed by vapor collection.
+   - Use robotic systems to churn moist soil for efficient extraction ([NASA Study on Water Extraction](https://ntrs.nasa.gov/api/citations/20160010258/downloads/20160010258.pdf)).      
+
+2. **Evolved Gas Capture System**:
+   - Fans blow Mars atmospheric gases over exposed regolith during controlled sublimation, collecting evolved water vapor.
+
+3. **Automated Drilling Operations**:
+   - Advanced drills extract water from subsurface ice deposits.
+   - Direct melting/extraction systems convert captured ice into usable liquid.
+
+---
+
+### **2. Mineral Resources for Construction**
+#### **Key Resources Near Olympus Mons**:
+- **Basalt**: Common volcanic material ideal for construction. Basalt-based composites can be created to build modular structures and radiation shielding.
+- **Iron and Volcanic Ash**: Extensive volcanic activity around Olympus Mons provides iron-rich materials suitable for construction. These can be 3D-printed into prefabricated bricks ([Parametric Architecture](https://parametric-architecture.com/which-materials-can-be-used-to-construct-on-mars/)).
+- **Dark Sand Dunes**: Contains chromite, magnetite, and ilmenite, which are valuable for processing chromium, iron, and titanium ([Ore Resources on Mars](https://en.wikipedia.org/wiki/Ore_resources_on_Mars)).
+- **Trace Metals**:
+   - Meteorite studies indicate abundant magnesium, aluminum, titanium, cobalt, and copper near craters and volcanic formations.
+
+#### **Applications**:
+- **Regolith Bricks**: Compact Martian soil into durable bricks for dome exteriors.
+- **Basalt/Reinforced Concrete**: Utilize nearby basalt for cement production paired with pre-extracted water for reinforced construction.
+
+---
+
+### **3. Energy Requirements and Sources**
+#### **Energy Requirements**:
+- Initial power demands for water extraction, greenhouse operations, and habitat systems: ~40-100 kW.
+- Terraforming-scale operations such as greenhouse gas release and CO₂ sublimation will require **megawatt-level energy output** in the long term.
+
+#### **Primary Energy Sources**:
+1. **Nuclear Fission Reactors**:
+   - NASA has baselined nuclear fission as the primary power source for Mars colonization due to its reliability and mass efficiency ([NASA Mars Surface Power Technology](https://www.nasa.gov/wp-content/uploads/2024/12/acr24-mars-surface-power-decision.pdf)).
+
+2. **Solar Arrays**:
+   - Ideal for long-term supplemental power.
+   - Requires dust mitigation systems to counteract obstruction by Martian dust storms.
+
+3. **Methane and Oxygen Combustion**:
+   - Methane fuel synthesis via CO₂ and water electrolysis (ISRU).
+   - Dual-use for energy production and Mars Ascent Vehicle (MAV) refueling.
+
+4. **Geothermal Power**:
+   - Investigate Olympus Mons’ volcanic activity for geothermal heat exploitation in localized zones.
+
+---
+
+### **4. Supply Chain Logistics**
+#### **In-situ Resource Utilization (ISRU) Technologies**:
+- **ISRU Advancements**:
+   - Oxygen extraction from regolith and CO₂ in the atmosphere.
+   - Metal extraction from basalt for manufacturing components using electrochemical refining ([MDPI - Mars Habitation Technologies](https://www.mdpi.com/2226-4310/12/6/510)).
+
+#### **Mars Supply Chain Strategy**:
+1. **Pre-deployment of Cargo:**
+   - Prioritize robotic deployment of infrastructure, ISRU reactors, and drills before human arrival.
+
+2. **Phased Supply Missions**:
+   - Follow NASA’s cargo mission model ([Journey to Mars Logistics](https://www.nasa.gov/wp-content/uploads/2017/11/journey-to-mars-next-steps-20151008_508.pdf)).
+
+3. **Integration of ISRU Products**:
+   - Local oxygen and water production for life support.
+   - Harvest metals for construction and minimize Earth-supplied components.
+
+4. **Earth-Mars Transportation Cycle**:
+   - Utilize existing Gateway and Artemis systems to move resources in a cost-effective manner ([Gateway Deep Space Logistics](https://www.nasa.gov/gateway-deep-space-logistics/about-gateway-deep-space-logistics/)).
+
+---
+
+### **Summary and Implementation**
+By leveraging Mars' basalt-rich volcanic terrain, regional subsurface ice deposits, and ISRU technologies, Olympus Mons Base can support both immediate habitation needs and continuous terraforming progress. Incorporating nuclear power for early colony operations and solar/geothermal for secondary power ensures energy sustainability over centuries of atmospheric evolution. Supply chain planning and preemptive resource setups must be prioritized for long-term automation and settlement scalability.
+
+🏗️ HABITAT INFRASTRUCTURE:
+Based on your initial plan and integrating additional information from the latest advancements in Mars habitat design and space agriculture, here's a refined and comprehensive infrastructure proposal for the Olympus Mons Base:
+
+---
+
+### **1. Radiation Shielding Using Available Materials**
+
+Radiation is a key hazard on Mars due to the lack of a magnetic field and thin atmospheric protection. To address this:
+
+- **Regolith Shielding**:
+  - Excavate and process the volcanic regolith near Olympus Mons, forming compacted layers over habitats to provide radiation shielding. A 2-3 meter regolith layer can block ~90% of cosmic radiation.
+  - Utilize 3D-printed basalt composites for additional modular structures, leveraging Olympus Mons' volcanic basalt reserves.
+
+- **Lava Tubes for Habitats**:
+  - Olympus Mons contains extensive lava tubes, which naturally offer significant protection from radiation. These underground habitats are ideal locations for sensitive systems and living quarters.
+  - Employ autonomous drones for exploration and mapping of lava tubes, adapting them for human habitation.
+
+- **Advanced Coatings**:
+  - Develop lightweight, radiation-resistant polymer coatings with hydrogen-rich layers. These can enhance protection in sensitive areas without adding significant weight.
+
+- **Small-Scale Electromagnetic Shields**:
+  - Install superconducting coil systems around critical areas (e.g., agricultural zones) to reduce cosmic radiation exposure.
+
+---
+
+### **2. Pressurized Dome Specifications**
+
+Pressurized domes will be essential for maintaining Earth-like conditions in an otherwise inhospitable environment.
+
+#### Key Features:
+- **Geodesic Dome Design**:
+  - Structure domes using carbon composite frames combined with basalt-fiber-based concrete.
+  - Transparent sections utilize **radiation-absorbing fused silica glass** coated with advanced UV and radiation filters.
+
+- **Reinforced Dual Wall System**:
+  - Incorporate insulation layers (like aerogels) between structural walls for thermal efficiency. This ensures Earth-like temperatures inside despite external Martian cold.
+
+- **Scalable Modular Units**:
+  - Initial domes will support small populations (10-50 individuals). Scale up to interconnected dome clusters as colonization grows, covering industrial operations, residential areas, and agricultural facilities.
+
+- **Pressure Range**:
+  - Domes must maintain an internal pressure of 100 kPa (~1 bar), targeting Earth-like conditions. Subsystems will automate pressure monitoring and system repairs.
+
+- **Airlocks**:
+  - Multi-stage airlocks with flexible materials (based on spacecraft seals) allow safe ingress/egress of materials and humans while preserving internal conditions.
+
+---
+
+### **3. Life Support System Integration**
+
+Life support systems should prioritize reliability, redundancy, and efficiency to provide breathable air, clean water, and stable temperatures.
+
+#### Atmosphere and Air Supply:
+- **Oxygen Production**:
+  - Install NASA's **solid oxide electrolysis (SOXE)** units to split CO₂ from Mars' atmosphere into oxygen and carbon monoxide.
+  - Supplement with oxygen produced during water ice electrolysis.
+
+- **CO₂ Scrubbing and Recycling**:
+  - Use abiotic scrubbers, such as **amine-based capture systems**, to eliminate buildup and recycle CO₂ for use in agricultural zones.
+
+- **Temperature Control**:
+  - Heat habitats using a combination of nuclear fission reactors (primary source) and insulation materials such as martian basalt fiber or aerogels.
+
+#### Water Systems:
+- **ISRU Methods for Water Extraction**:
+  - Robotic systems will process subsurface ice, sublimating it for liquid water production.
+  - NASA-derived technology like the **MOXIE system** can ensure water conversion remains sustainable.
+
+#### Energy Infrastructure:
+- **Primary Power**:
+  - Deploy nuclear fission reactors, similar to NASA’s Kilopower project, as the primary power source due to reliability.
+- **Secondary Energy (Solar Arrays)**:
+  - Install solar arrays near Olympus Mons’ slopes, equipped with dust mitigation systems.
+
+- **Backup Power**:
+  - Use methane and oxygen combustion (derived in situ) as an emergency energy reserve.
+
+---
+
+### **4. Agricultural Facilities for Food Production**
+
+Agriculture on Mars is multifaceted, involving hydroponic, aeroponic, and soil adaptation technologies.
+
+#### Controlled Agriculture:
+- **Hydroponics and Aeroponics**:
+  - Grow crops like potatoes, barley, soybeans, and greens in closed nutrient-water circuits. Advanced **LED grow lighting systems** will provide optimal light wavelengths for photosynthesis.
+
+- **Precision Irrigation**:
+  - Using AI-based systems (adapted from Farmonaut’s Earth technologies), maintain precise water usage and nutrient delivery to match Martian resource constraints.
+
+#### Soil Rehabilitation:
+- **Martian Regolith Utilization**:
+  - Treat local regolith with bioengineered bacteria and Earth-adapted microbes to neutralize perchlorates and improve organic uptake.
+  - Over time, develop semi-closed ecosystems capable of addressing both atmospheric CO₂ and regolith fertility.
+
+#### Oxygen Generation:
+- Agricultural systems will significantly contribute to oxygen production during early habitation by taking in recycled CO₂ and releasing O₂ as a byproduct.
+
+#### Carbon Capture:
+- Agricultural facilities in domes will gradually act as carbon dioxide sinks, enabling experimental contributions to terraforming efforts by stabilizing CO₂ conversion in semi-open environments.
+
+---
+
+### **5. Integration with Atmospheric Conversion Timeline**
+
+#### **Phase 1 (0–100 years)**:
+- Sealed, pressurized habitats (domes and underground installations).
+- Co-exist with terraforming activities like CO₂ sublimation around Olympus Mons’ frozen poles.
+- Air and oxygen generation remain entirely artificial.
+
+#### **Phase 2 (100–500 years)**:
+- Expand semi-open habitats as external pressures rise (~30 kPa). Greenhouses and agricultural zone oxygenation systems assist in atmospheric thickening.
+
+#### **Phase 3 (500-1,000+ years)**:
+- Focus shifts toward self-regulating ecosystems. Pressure near Olympus Mons may exceed ~90 kPa, allowing minimal air augmentation.
+
+---
+
+### Additional Notes:
+- Based on **NASA's 2024 Moon-to-Mars updates** ([NASA Source](https://www.nasa.gov/news-release/nasa-outlines-latest-moon-to-mars-plans-in-2024-architecture-update/)), modular ISRU and habitation scalability remain priorities, particularly on volcanic terrain like Olympus Mons.
+- As terrestrial agricultural innovations, including AI-managed precision farms, mature, they can be adapted to enhance output and reduce energy consumption in Martian agricultural domes ([Farmonaut Space Innovations](https://farmonaut.com)).
+
+### Final Thought:
+The Olympus Mons Base acts as more than a habitation zone—it is humanity’s platform for transforming an alien world into a sustainable, Earthlike environment. Combining present-day ingenuity with phased atmospheric terraform strategies, the plan stands solidly in line with realistic Martian timelines and resource efficiency.
+
+✅ Terraforming analysis complete and stored in MCP database!
