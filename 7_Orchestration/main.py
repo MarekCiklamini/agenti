@@ -1,4 +1,3 @@
-from google import genai
 import os
 from dotenv import load_dotenv
 
@@ -18,12 +17,27 @@ from langgraph.graph import START, END
 
 load_dotenv()
 
-
 llm = AzureChatOpenAI(
     api_version="2025-01-01-preview",
     azure_endpoint=os.environ.get("ENDPOINT"),
     azure_ad_token=os.environ.get("AZURE_OPENAI_API_KEY")
 )
+
+# Tool
+search = TavilySearchResults(max_results=3)
+llm_with_search = llm.bind_tools([search])  # Bind the tool to the model
+
+# ---------------------------
+# Define the graph
+# ---------------------------
+
+
+# State
+class State(TypedDict):
+    theme: str
+    jokeText: str
+    storyText: str
+    memeText: str
 
 # ---------------------------
 # Mars Terraforming Graph (Analogous to Joke Graph)
@@ -220,7 +234,6 @@ mars_builder.add_node("atmospheric", AtmosphericNode)
 mars_builder.add_node("resources", ResourceNode)  
 mars_builder.add_node("habitat", HabitatNode)
 
-# Create the same linear flow as the Joke graph
 mars_builder.add_edge(START, "atmospheric")
 mars_builder.add_edge("atmospheric", "resources")
 mars_builder.add_edge("resources", "habitat")
