@@ -30,19 +30,6 @@ search = TavilySearchResults(max_results=2)
 llm_with_search = llm.bind_tools([search])  # Bind the tool to the model
 
 # ---------------------------
-# Define the graph
-# ---------------------------
-
-
-# State
-class State(TypedDict):
-    theme: str
-    jokeText: str
-    storyText: str
-    memeText: str
-
-
-# ---------------------------
 # Mars Terraforming Graph
 # ---------------------------
 
