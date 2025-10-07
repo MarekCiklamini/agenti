@@ -1,4 +1,31 @@
-..
+# Mars Terraforming — LangGraph + MCP + Tavily + Azure OpenAI
+
+A minimal, end-to-end agent pipeline that plans and executes a Mars terraforming analysis using:
+
+LangGraph state machine (Planner → Atmospheric → Resources → Habitat)
+
+Azure OpenAI (chat model) with Tavily web search bound as a tool
+
+A local MCP server for knowledge/memory & delivery:
+
+initialize_qdrant, fetch_from_qdb, add_documents
+
+Optional swap-in for Gemini via ChatGoogleGenerativeAI
+
+Auto-visualization of the graph (visualize(...) → mars_terraforming_graph.png)
+
+The pipeline:
+
+Initializes an MCP session
+
+Builds a 3-node graph: Atmospheric → Resource → Habitat
+
+Each node uses LLM + Tavily (as a tool) + MCP memory
+
+Final plan is stored back via MCP (add_documents)
+
+Prints structured results to the console
+
 # possible output document to qdrant db via mcp 
 ============================================================
 🌍 MARS TERRAFORMING COMPLETE ANALYSIS
