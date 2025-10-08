@@ -2,6 +2,7 @@
 
 A tiny, focused pilot that runs a **LangGraph** pipeline for Mars terraforming analysis, using **Azure OpenAI** (or **Gemini**) with **Tavily** search and a local **MCP** server for memory (Qdrant) and storage.
 
+
 ## What it does
 - Builds a 3‑step graph: **Atmospheric → Resources → Habitat**.
 - Each node: calls LLM, optionally uses **Tavily** as a tool, and pulls prior knowledge via **MCP** (`fetch_from_qdb`).
@@ -76,6 +77,10 @@ llm = ChatGoogleGenerativeAI(
 - Ensure Tavily key is set; otherwise tool calls will fail.
 - If you use API key auth (not AAD) for Azure, you can set `api_key=` in the model init as needed.
 
+# notes and references 
+
+pland and execute throuhg LG tutorial: 
+plan[https://langchain-ai.github.io/langgraph/tutorials/plan-and-execute/plan-and-execute/#setup]
 
 # possible output document to qdrant db via mcp 
 ============================================================
