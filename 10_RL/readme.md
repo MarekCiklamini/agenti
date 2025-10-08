@@ -1,5 +1,8 @@
 
 ### notes 
+
+[1] https://docs.pytorch.org/tutorials/intermediate/mario_rl_tutorial.html
+
 https://github.com/yfeng997/MadMario
 
 https://huggingface.co/blog/deep-rl-ppo
