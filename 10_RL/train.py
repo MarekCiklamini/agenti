@@ -7,9 +7,16 @@ from collections import deque
 import random
 from dotenv import load_dotenv
 import os
+import ale_py
+import time
 
 # Load environment variables
 load_dotenv()
+
+# Set SDL environment variables for WSL2 (same as main.py)
+os.environ['SDL_VIDEO_WINDOW_POS'] = '100,100'
+# Try to set a smaller zoom factor for the Atari rendering
+os.environ['ALE_DISPLAY_SCREEN_ZOOM'] = '2.0'  # Default is often 4.0, this makes it smaller
 
 class PPONetwork(nn.Module):
     def __init__(self, input_shape, num_actions):
@@ -202,24 +209,36 @@ class PPOTrainer:
                 torch.save(self.network.state_dict(), f'mario_ppo_model_{iteration}.pth')
 
 def main():
-    # Create environment
-    env = gym.make("ALE/MarioBros-v5", render_mode=None)  # No rendering for training
-    
-    # Create trainer
-    trainer = PPOTrainer(env)
-    
-    print("Starting PPO training for Mario Bros...")
-    print(f"Action space: {env.action_space.n} actions")
-    print(f"Observation space: {env.observation_space.shape}")
-    
-    # Start training
-    trainer.train(num_iterations=1000)
-    
-    # Save final model
-    torch.save(trainer.network.state_dict(), 'mario_ppo_final.pth')
-    print("Training completed! Model saved as 'mario_ppo_final.pth'")
-    
-    env.close()
+    try:
+        # Create environment (same as main.py but without rendering for training)
+        print("Creating Mario Bros environment for training...")
+        env = gym.make("ALE/MarioBros-v5", render_mode=None)  # No rendering for training
+        
+        # Create trainer
+        trainer = PPOTrainer(env)
+        
+        print("Starting PPO training for Mario Bros...")
+        print(f"Action space: {env.action_space.n} actions")
+        print(f"Observation space: {env.observation_space.shape}")
+        print("\nAction mapping for Mario Bros:")
+        print("0: NOOP, 1: Fire, 2: Up, 3: Right, 4: Left, 5: Down")
+        print("6: Up-Right, 7: Up-Left, 8: Down-Right, 9: Down-Left")
+        print("10: Up-Fire, 11: Right-Fire, 12: Left-Fire, 13: Down-Fire")
+        print("14: Up-Right-Fire, 15: Up-Left-Fire, 16: Down-Right-Fire, 17: Down-Left-Fire")
+        
+        # Start training
+        trainer.train(num_iterations=100)  # Reduced for testing
+        
+        # Save final model
+        torch.save(trainer.network.state_dict(), 'mario_ppo_final.pth')
+        print("Training completed! Model saved as 'mario_ppo_final.pth'")
+        
+        env.close()
+        
+    except Exception as e:
+        print(f"Training error: {e}")
+        import traceback
+        traceback.print_exc()
 
 if __name__ == "__main__":
     main()
