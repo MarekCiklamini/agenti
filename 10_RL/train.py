@@ -88,12 +88,12 @@ class PPOTrainer:
         self.dones = []
     
     def preprocess_state(self, state):
-        # Convert to grayscale and resize
+        import cv2
+        # Convert to grayscale and resize to 84x84
         if len(state.shape) == 3:
-            state = np.mean(state, axis=2)
+            state = cv2.cvtColor(state, cv2.COLOR_RGB2GRAY)
+        state = cv2.resize(state, (84, 84))
         state = np.array(state, dtype=np.uint8)
-        # Resize to 84x84 (you might need to install cv2 or use PIL)
-        # For now, just return as is - you should add proper preprocessing
         return state
     
     def collect_experience(self, num_steps=2048):
