@@ -57,12 +57,12 @@ def load_and_test_model():
         
         # Try to load different model checkpoints
         model_files = [
-            'mario_ppo_final.pth',
+            # 'mario_ppo_final.pth',
             'mario_ppo_model_80.pth', 
-            'mario_ppo_model_60.pth',
-            'mario_ppo_model_40.pth',
-            'mario_ppo_model_20.pth',
-            'mario_ppo_model_0.pth'
+            # 'mario_ppo_model_60.pth',
+            # 'mario_ppo_model_40.pth',
+            # 'mario_ppo_model_20.pth',
+            # 'mario_ppo_model_0.pth'
         ]
         
         model_loaded = False
@@ -73,6 +73,7 @@ def load_and_test_model():
                     model.load_state_dict(torch.load(model_file))
                     model.eval()
                     model_loaded = True
+
                     break
             except Exception as e:
                 print(f"Failed to load {model_file}: {e}")
