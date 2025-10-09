@@ -127,6 +127,20 @@ def load_and_test_model():
                 frame_tensor = torch.FloatTensor(1, 4, 84, 84)
             
             while True:
+                # Skip frames for turbo mode
+                if speed_name == "turbo" and steps % frame_skip != 0:
+                    # Take action without inference
+                    _, reward, terminated, truncated, _ = env.step(0)  # NOOP action
+                    done = terminated or truncated
+                    episode_reward += reward
+                    steps += 1
+                    if done or steps > 1000:
+                        break
+                    continue
+                
+                # Time the inference for performance measurement
+                inference_start = time.perf_counter()
+                
                 # Efficient tensor copying (reuse pre-allocated tensor)
                 frame_tensor[0] = torch.from_numpy(frame_stack)
                 
@@ -137,15 +151,21 @@ def load_and_test_model():
                 action = torch.argmax(action_probs, dim=1)[0]
                 action_int = int(action)  # Convert once
                 
+                # Track inference time
+                inference_time = time.perf_counter() - inference_start
+                total_inference_time += inference_time
+                total_steps += 1
+                
                 # Print action info less frequently for speed
-                if steps % 50 == 0 and speed_mode != "ultra":
+                if steps % 50 == 0 and speed_name not in ["ultra", "turbo"]:
                     action_names = ["NOOP", "Fire", "Up", "Right", "Left", "Down", 
                                   "Up-Right", "Up-Left", "Down-Right", "Down-Left",
                                   "Up-Fire", "Right-Fire", "Left-Fire", "Down-Fire",
                                   "Up-Right-Fire", "Up-Left-Fire", "Down-Right-Fire", "Down-Left-Fire"]
                     action_name = action_names[action_int] if action_int < len(action_names) else f"Action-{action_int}"
                     confidence = float(torch.max(action_probs))
-                    print(f"  Step {steps:3d}: Action {action_int:2d} ({action_name}) - Confidence: {confidence:.2f}")
+                    fps = 1.0 / inference_time if inference_time > 0 else float('inf')
+                    print(f"  Step {steps:3d}: Action {action_int:2d} ({action_name}) - Confidence: {confidence:.2f} - FPS: {fps:.0f}")
                 
                 # Take action in environment
                 next_state, reward, terminated, truncated, info = env.step(action_int)
@@ -160,10 +180,10 @@ def load_and_test_model():
                 frame_stack[-1] = next_state  # Add new frame
                 
                 # Dynamic speed control
-                if speed_mode == "ultra":
+                if speed_name in ["ultra", "turbo"]:
                     pass  # No delay for maximum speed
                 elif steps % 10 == 0:  # Only delay every 10th step for speed
-                    time.sleep(speed_delays[speed_mode])
+                    time.sleep(delay)
                 
                 if reward != 0:
                     print(f"    💰 Reward: {reward}, Total: {episode_reward}")
@@ -173,7 +193,24 @@ def load_and_test_model():
                     break
         
         env.close()
-        print("🏁 Testing completed!")
+        
+        # Performance statistics
+        avg_inference_time = total_inference_time / total_steps if total_steps > 0 else 0
+        avg_fps = 1.0 / avg_inference_time if avg_inference_time > 0 else float('inf')
+        
+        print("\n🏁 Testing completed!")
+        print(f"📊 Performance Stats:")
+        print(f"  Average inference time: {avg_inference_time*1000:.2f}ms")
+        print(f"  Average FPS: {avg_fps:.1f}")
+        print(f"  Total inference steps: {total_steps}")
+        print(f"  Speed mode: {speed_name.upper()}")
+        
+        if avg_fps > 60:
+            print("🚀 Excellent performance! Model is running very fast.")
+        elif avg_fps > 30:
+            print("✅ Good performance! Smooth gameplay.")
+        else:
+            print("⚠️  Consider using GPU or reducing model complexity for better performance.")
         
     except Exception as e:
         print(f"Error during testing: {e}")
