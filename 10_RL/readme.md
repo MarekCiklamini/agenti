@@ -5,9 +5,9 @@
 
 [2] https://github.com/yfeng997/MadMario
 
-https://huggingface.co/blog/deep-rl-ppo
+[3] https://huggingface.co/blog/deep-rl-ppo
 
-https://huggingface.co/learn/deep-rl-course/unit3/deep-q-network
+[4] https://huggingface.co/learn/deep-rl-course/unit3/deep-q-network
 
 https://huggingface.co/learn/deep-rl-course/unit6/advantage-actor-critic 
 ## Zadání:
