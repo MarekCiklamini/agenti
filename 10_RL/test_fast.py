@@ -8,7 +8,7 @@ import torch
 import gymnasium as gym
 import ale_py
 
-from train2 import CNNPolicy, make_env  # your existing modules (policy + atari wrappers)
+from train import CNNPolicy, make_env  # your existing modules (policy + atari wrappers)
 
 # --- Optional: reduce overhead ---
 os.environ["SDL_AUDIODRIVER"] = "dummy"       # avoid audio init
