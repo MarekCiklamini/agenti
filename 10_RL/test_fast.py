@@ -54,14 +54,13 @@ def load_model(device):
     model = CNNPolicy(4, 18).to(device)
     # Try your latest checkpoint first; falls back to others automatically
     candidates = [
+        "mario_ppo_checkpoint_20.pth",   # Try earlier checkpoint
+        "mario_ppo_checkpoint_40.pth",
+        "mario_ppo_checkpoint_60.pth",
+        "mario_ppo_checkpoint_80.pth",
+        "mario_ppo_checkpoint_100.pth",
         "mario_ppo_checkpoint_140.pth",
         # "mario_ppo_final.pth",
-        # "mario_ppo_model_100.pth",
-        # "mario_ppo_model_80.pth",
-        # "mario_ppo_model_60.pth",
-        # "mario_ppo_model_40.pth",
-        # "mario_ppo_model_20.pth",
-        # "mario_ppo_model_0.pth",
     ]
     for path in candidates:
         if not os.path.exists(path):
@@ -93,38 +92,33 @@ def main():
     frame_skip = speed["frame_skip"]
     use_render = speed["render"]
 
-    # Use rgb_array for uncapped speed (we will draw with OpenCV)
-    # Keep training-identical preprocessing via your make_env if not rendering:
+    # Simplified: Use single environment with proper rendering mode
     if use_render:
-        env = gym.make("ALE/MarioBros-v5", render_mode="rgb_array")
-        # Important: we still want the same obs preprocessing/stacking the policy expects.
-        # Reuse training wrappers (AtariPreprocessing + FrameStack + scaling) by building a parallel obs-only env
-        # Easiest: create a non-rendering env for observations, but step the same actions as the render env.
-        obs_env = make_env("ALE/MarioBros-v5", stack=4)  # returns scaled float [0,1], shape [4,84,84]
-        print("🎥 Display via OpenCV from rgb_array, policy obs from training wrappers.")
+        # Use human rendering mode for direct visualization
+        env = gym.make("ALE/MarioBros-v5", render_mode="human")
+        # Apply same preprocessing as training
+        from gymnasium.wrappers.atari_preprocessing import AtariPreprocessing
+        from gymnasium.wrappers import FrameStackObservation
+        env = AtariPreprocessing(env, frame_skip=1, screen_size=84, grayscale_obs=True, scale_obs=True)
+        env = FrameStackObservation(env, stack_size=4)
+        print("� Visual mode with direct rendering")
     else:
         # Pure speed benchmark (no rendering)
         env = make_env("ALE/MarioBros-v5", stack=4)
-        obs_env = env  # same source
+        print("🔥 Benchmark mode (no rendering)")
 
-    # Reset both envs in sync
-    obs_env.reset()
-    if use_render:
-        env.reset()
+    # Single environment reset
+    env.reset()
 
     total_steps, total_infer_s, action_hist = 0, 0.0, np.zeros(18, dtype=np.int64)
 
-    if use_render:
-        cv2.namedWindow("Mario", cv2.WINDOW_NORMAL)
-        cv2.resizeWindow("Mario", 640, 480)
-
     episodes = 3
     for ep in range(episodes):
-        obs, _ = obs_env.reset()
-        if use_render:
-            env.reset()
-
+        obs, _ = env.reset()
         ep_ret, steps, last_action = 0.0, 0, 0
+        
+        print(f"\n🎮 Episode {ep+1} starting...")
+        
         while True:
             # Frame skip: repeat last action without running policy
             if frame_skip > 1 and (steps % frame_skip != 0):
@@ -134,39 +128,48 @@ def main():
                 x = torch.from_numpy(np.array(obs)).unsqueeze(0).to(device)  # [1,4,84,84]
                 with torch.no_grad():
                     logits, _ = model(x)
-                    # Greedy for viewing stability; use sampling if desired:
-                    # a = int(torch.distributions.Categorical(logits=logits).sample().item())
-                    a = int(torch.argmax(logits, dim=-1).item())
+                    # Apply NOOP bias to encourage movement (same as training)
+                    logits = logits.clone()
+                    logits[:, 0] -= math.log(10.0)  # Reduce NOOP probability
+                    
+                    # Add temperature for more diverse actions
+                    temperature = 2.0  # Higher = more exploration
+                    logits_temp = logits / temperature
+                    a = int(torch.distributions.Categorical(logits=logits_temp).sample().item())
+                    
+                    # Debug action selection occasionally
+                    if steps % 100 == 0:
+                        action_probs = torch.softmax(logits, dim=-1)
+                        top_actions = torch.topk(action_probs, 3)
+                        print(f"  Step {steps}: Action {a} ({ACTION_NAMES[a]}) - "
+                              f"Top probs: {[f'{ACTION_NAMES[idx]}:{val:.3f}' for idx, val in zip(top_actions.indices[0], top_actions.values[0])]}")
+                        
                 total_infer_s += (time.perf_counter() - t0)
                 last_action = a
 
-            # Step *both* envs to keep obs and rgb in sync
-            next_obs, reward, terminated, truncated, _ = obs_env.step(a)
+            # Step environment 
+            next_obs, reward, terminated, truncated, _ = env.step(a)
             done = terminated or truncated
             ep_ret += reward
             action_hist[a] += 1
             steps += 1
             total_steps += 1
 
-            if use_render:
-                frame = env.render()  # returns RGB array HxWx3 (uint8)
-                # Fast resize for nicer viewing without extra work in env:
-                frame = cv2.resize(frame, (640, 480), interpolation=cv2.INTER_NEAREST)
-                cv2.imshow("Mario", frame)
-                # waitKey is the only UI throttle; set to 1ms (or 0..n for extra delay)
-                key = cv2.waitKey(delay_ms)
-                if key == 27:  # ESC to quit early
-                    done = True
+            # Add small delay for visual modes
+            if use_render and delay_ms > 0:
+                time.sleep(delay_ms / 1000.0)
 
             obs = next_obs
+
+            # Print rewards when they occur
+            if reward != 0:
+                print(f"    💰 Reward: {reward} at step {steps} (total: {ep_ret})")
 
             # safety cap for demos
             if done or steps > 3000:
                 print(f"Episode {ep+1}: return={ep_ret:.1f}, steps={steps}")
                 break
 
-    if use_render:
-        cv2.destroyAllWindows()
     env.close()
 
     # Perf stats
