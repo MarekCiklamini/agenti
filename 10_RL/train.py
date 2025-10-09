@@ -21,16 +21,12 @@ import torch.nn as nn
 import torch.optim as optim
 
 import gymnasium as gym
-try:
-    from gymnasium.wrappers.frame_stack import FrameStack
-except ImportError:
-    # older gymnasium or gym fallback
-    from gymnasium.wrappers import FrameStack
-
-from gymnasium.wrappers import TransformObservation
+from gymnasium.wrappers import TransformObservation, FrameStackObservation
 from gymnasium.wrappers.atari_preprocessing import AtariPreprocessing
 
-
+# Register ALE environments
+import ale_py
+gym.register_envs(ale_py)
 
 # --------------------
 # Config
@@ -81,14 +77,27 @@ def make_env(env_id: str, stack: int = 4):
     """
     Standard Atari preprocessing:
     - grayscale, resize to 84x84
-    - frame_skip=4
+    - frame_skip already built into ALE/MarioBros-v5 (frameskip=4)
     - no scaling inside AtariPreprocessing; we'll scale once via TransformObservation
     - FrameStack for temporal info
     """
     env = gym.make(env_id, render_mode=None)
-    env = AtariPreprocessing(env, frame_skip=4, screen_size=84, grayscale_obs=True, scale_obs=False)
-    env = FrameStack(env, num_stack=stack)
-    env = TransformObservation(env, lambda x: x.astype(np.float32) / 255.0)  # [0,1]
+    # Don't use frame_skip since ALE/MarioBros-v5 already has frameskip=4
+    env = AtariPreprocessing(env, frame_skip=1, screen_size=84, grayscale_obs=True, scale_obs=False)
+    env = FrameStackObservation(env, stack_size=stack)
+    
+    # Fix for newer gymnasium versions - use scale_obs=True in AtariPreprocessing instead
+    # Or create a custom wrapper
+    from gymnasium import spaces
+    
+    class NormalizeObservation(gym.Wrapper):
+        def __init__(self, env):
+            super().__init__(env)
+            
+        def observation(self, obs):
+            return obs.astype(np.float32) / 255.0
+    
+    env = NormalizeObservation(env)
     return env
 
 # --------------------
