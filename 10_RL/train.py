@@ -1,325 +1,344 @@
-import gymnasium as gym
+# test2.py
+# PPO for ALE/MarioBros-v5 with proper Atari preprocessing, GAE(λ), minibatches,
+# entropy bonus, consistent NOOP biasing in logits, and stable training plumbing.
+#
+# Requirements:
+#   pip install gymnasium ale-py torch numpy opencv-python python-dotenv
+# Optional (for speed): pip install torch --index-url https://download.pytorch.org/whl/cu121
+#
+# Run:
+#   python test2.py
+
+import os
+import math
+import time
+import random
+import numpy as np
+from collections import deque
+
 import torch
 import torch.nn as nn
 import torch.optim as optim
-import numpy as np
-from collections import deque
-import random
-from dotenv import load_dotenv
-import os
-import ale_py
-import time
 
-# Load environment variables
-load_dotenv()
+import gymnasium as gym
+try:
+    from gymnasium.wrappers.frame_stack import FrameStack
+except ImportError:
+    # older gymnasium or gym fallback
+    from gymnasium.wrappers import FrameStack
 
-# Set SDL environment variables for WSL2 (same as main.py)
-os.environ['SDL_VIDEO_WINDOW_POS'] = '100,100'
-# Try to set a smaller zoom factor for the Atari rendering
-os.environ['ALE_DISPLAY_SCREEN_ZOOM'] = '2.0'  # Default is often 4.0, this makes it smaller
+from gymnasium.wrappers import TransformObservation
+from gymnasium.wrappers.atari_preprocessing import AtariPreprocessing
 
-class PPONetwork(nn.Module):
-    def __init__(self, input_shape, num_actions):
-        super(PPONetwork, self).__init__()
-        
-        # CNN layers for image processing
+
+
+# --------------------
+# Config
+# --------------------
+CONFIG = {
+    "env_id": "ALE/MarioBros-v5",
+    "total_iterations": 1000,        # PPO update iterations
+    "steps_per_iter": 2048,          # env steps / iteration
+    "num_stack": 4,                  # frame stack depth
+    "learning_rate": 2.5e-4,
+    "gamma": 0.99,
+    "gae_lambda": 0.95,
+    "clip_eps": 0.1,                 # PPO clipping
+    "epochs": 4,                     # PPO epochs per update
+    "minibatch_size": 256,
+    "value_coef": 0.5,
+    "entropy_coef": 0.01,
+    "max_grad_norm": 0.5,
+    "save_every": 20,
+    "seed": 42,
+    # Exploration nudging: apply a constant logit penalty to NOOP (action 0)
+    "enable_noop_bias": True,
+    "noop_bias_factor": 10.0,        # logits[:,0] -= log(noop_bias_factor)
+    # Logging
+    "print_every": 10,
+}
+
+# --------------------
+# Torch perf toggles
+# --------------------
+torch.backends.cudnn.benchmark = True
+torch.backends.cudnn.deterministic = False
+if hasattr(torch.backends, "opt_einsum"):
+    torch.backends.opt_einsum.enabled = True
+torch.set_float32_matmul_precision("medium")
+torch.set_num_threads(6)
+
+# --------------------
+# Utils
+# --------------------
+def set_seed(seed: int):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+def make_env(env_id: str, stack: int = 4):
+    """
+    Standard Atari preprocessing:
+    - grayscale, resize to 84x84
+    - frame_skip=4
+    - no scaling inside AtariPreprocessing; we'll scale once via TransformObservation
+    - FrameStack for temporal info
+    """
+    env = gym.make(env_id, render_mode=None)
+    env = AtariPreprocessing(env, frame_skip=4, screen_size=84, grayscale_obs=True, scale_obs=False)
+    env = FrameStack(env, num_stack=stack)
+    env = TransformObservation(env, lambda x: x.astype(np.float32) / 255.0)  # [0,1]
+    return env
+
+# --------------------
+# Networks
+# --------------------
+class CNNPolicy(nn.Module):
+    """
+    CNN torso + dual heads (policy logits, value).
+    Assumes input shape: [B, C=stack, 84, 84] with float32 in [0,1].
+    """
+    def __init__(self, in_channels: int, num_actions: int):
+        super().__init__()
         self.conv = nn.Sequential(
-            nn.Conv2d(input_shape[0], 32, kernel_size=8, stride=4),
-            nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=4, stride=2),
-            nn.ReLU(),
-            nn.Conv2d(64, 64, kernel_size=3, stride=1),
-            nn.ReLU()
+            nn.Conv2d(in_channels, 32, kernel_size=8, stride=4), nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU(),
         )
-        
-        # Calculate conv output size
-        conv_out_size = self._get_conv_out(input_shape)
-        
-        # Shared layers
-        self.fc_shared = nn.Sequential(
-            nn.Linear(conv_out_size, 512),
-            nn.ReLU()
-        )
-        
-        # Actor head (policy)
-        self.actor = nn.Linear(512, num_actions)
-        
-        # Critic head (value function)
-        self.critic = nn.Linear(512, 1)
-    
-    def _get_conv_out(self, shape):
-        o = self.conv(torch.zeros(1, *shape))
-        return int(np.prod(o.size()))
-    
+        # compute conv out
+        with torch.no_grad():
+            dummy = torch.zeros(1, in_channels, 84, 84)
+            conv_out = self.conv(dummy).view(1, -1).shape[1]
+        self.fc = nn.Sequential(nn.Linear(conv_out, 512), nn.ReLU())
+        self.pi = nn.Linear(512, num_actions)  # logits
+        self.v = nn.Linear(512, 1)
+
     def forward(self, x):
-        x = x.float() / 255.0  # Normalize pixel values
-        conv_out = self.conv(x).view(x.size()[0], -1)
-        shared = self.fc_shared(conv_out)
-        
-        action_probs = torch.softmax(self.actor(shared), dim=-1)
-        state_value = self.critic(shared)
-        
-        return action_probs, state_value
+        x = self.conv(x)
+        x = x.view(x.size(0), -1)
+        x = self.fc(x)
+        logits = self.pi(x)
+        value = self.v(x).squeeze(-1)
+        return logits, value
 
-class PPOTrainer:
-    def __init__(self, env, lr=3e-4, gamma=0.99, epsilon=0.2, epochs=4):
+# --------------------
+# PPO Agent
+# --------------------
+class PPOAgent:
+    def __init__(self, env, cfg):
         self.env = env
-        self.gamma = gamma
-        self.epsilon = epsilon
-        self.epochs = epochs
-        
-        # Policy modification parameters
-        self.noop_penalty_strength = 0.1  # How much to reduce NOOP probability
-        self.active_action_bonus = True   # Enable active action bonuses
-        
-        # Get environment info
-        self.num_actions = env.action_space.n
-        self.input_shape = (4, 84, 84)  # Assuming frame stacking
-        
-        # Initialize network
-        self.network = PPONetwork(self.input_shape, self.num_actions)
-        self.optimizer = optim.Adam(self.network.parameters(), lr=lr)
-        
-        # Storage for experiences
-        self.reset_storage()
-    
-    def reset_storage(self):
-        self.states = []
-        self.actions = []
-        self.rewards = []
-        self.log_probs = []
-        self.values = []
-        self.dones = []
-        # Track recent actions for diversity bonus
-        self.recent_actions = deque(maxlen=10)  # Last 10 actions
-        self.noop_count = 0  # Count consecutive NOOP actions
-    
-    def preprocess_state(self, state):
-        import cv2
-        # Convert to grayscale and resize to 84x84
-        if len(state.shape) == 3:
-            state = cv2.cvtColor(state, cv2.COLOR_RGB2GRAY)
-        state = cv2.resize(state, (84, 84))
-        state = np.array(state, dtype=np.uint8)
-        return state
-    
-    def collect_experience(self, num_steps=2048):
-        state, _ = self.env.reset()
-        state = self.preprocess_state(state)
-        
-        for step in range(num_steps):
-            # Stack frames (simplified - you should implement proper frame stacking)
-            stacked_state = np.stack([state] * 4, axis=0)
-            state_tensor = torch.FloatTensor(stacked_state).unsqueeze(0)
-            
-            with torch.no_grad():
-                action_probs, value = self.network(state_tensor)
-                
-                # POLICY MODIFICATION: Discourage NOOP actions (action 0)
-                # Reduce probability of NOOP action to encourage active gameplay
-                modified_probs = action_probs.clone()
-                modified_probs[0, 0] *= 0.1  # Reduce NOOP probability by 90%
-                
-                # Normalize probabilities after modification
-                modified_probs = modified_probs / modified_probs.sum(dim=1, keepdim=True)
-                
-                action_dist = torch.distributions.Categorical(modified_probs)
-                action = action_dist.sample()
-                
-                # Use original probabilities for log_prob calculation (important for training stability)
-                original_dist = torch.distributions.Categorical(action_probs)
-                log_prob = original_dist.log_prob(action)
-            
-            # Store experience
-            self.states.append(stacked_state)
-            self.actions.append(action.item())
-            self.log_probs.append(log_prob.item())
-            self.values.append(value.item())
-            
-            # Take action
-            action_value = action.item()
-            next_state, reward, terminated, truncated, _ = self.env.step(action_value)
-            done = terminated or truncated
-            
-            # POLICY MODIFICATION: Advanced reward shaping for active gameplay
-            shaped_reward = reward
-            
-            # Track consecutive NOOP actions
-            if action_value == 0:  # NOOP action
-                self.noop_count += 1
-                # Increasing penalty for consecutive NOOP actions
-                shaped_reward -= 0.01 * min(self.noop_count, 5)  # Max penalty of -0.05
-            else:
-                self.noop_count = 0  # Reset NOOP counter
-                
-                # Base bonus for taking any action (key press)
-                shaped_reward += 0.005
-                
-                # Extra bonus for movement actions (encourage exploration)
-                if action_value in [2, 3, 4, 6, 7]:  # Up, Right, Left, Up-Right, Up-Left
-                    shaped_reward += 0.015  # Encourage movement
-                
-                # Bonus for complex actions (combinations with Fire)
-                if action_value >= 10:  # Fire combinations
-                    shaped_reward += 0.01  # Encourage complex actions
-                
-                # Diversity bonus: reward using different actions
-                self.recent_actions.append(action_value)
-                if len(self.recent_actions) >= 5:
-                    unique_actions = len(set(self.recent_actions))
-                    if unique_actions >= 4:  # Using 4+ different actions recently
-                        shaped_reward += 0.02  # Diversity bonus
-                    elif unique_actions <= 2:  # Too repetitive
-                        shaped_reward -= 0.005  # Small penalty for repetition
-            
-            self.rewards.append(shaped_reward)
-            self.dones.append(done)
-            
-            state = self.preprocess_state(next_state)
-            
-            if done:
-                state, _ = self.env.reset()
-                state = self.preprocess_state(state)
-    
-    def compute_advantages(self):
-        returns = []
-        advantages = []
-        
-        # Compute returns (discounted rewards)
-        discounted_return = 0
-        for reward, done in zip(reversed(self.rewards), reversed(self.dones)):
-            if done:
-                discounted_return = 0
-            discounted_return = reward + self.gamma * discounted_return
-            returns.insert(0, discounted_return)
-        
-        # Compute advantages
-        returns = torch.FloatTensor(returns)
-        values = torch.FloatTensor(self.values)
-        advantages = returns - values
-        
-        # Normalize advantages
-        advantages = (advantages - advantages.mean()) / (advantages.std() + 1e-8)
-        
-        return returns, advantages
-    
-    def update_policy(self, returns, advantages):
-        states = torch.FloatTensor(np.array(self.states))
-        actions = torch.LongTensor(self.actions)
-        old_log_probs = torch.FloatTensor(self.log_probs)
-        
-        for _ in range(self.epochs):
-            # Forward pass
-            action_probs, values = self.network(states)
-            
-            # POLICY MODIFICATION: Apply action masking during training
-            # Discourage NOOP actions in policy updates
-            masked_probs = action_probs.clone()
-            masked_probs[:, 0] *= 0.5  # Reduce NOOP probability during training
-            masked_probs = masked_probs / masked_probs.sum(dim=1, keepdim=True)
-            
-            action_dist = torch.distributions.Categorical(masked_probs)
-            new_log_probs = action_dist.log_prob(actions)
-            
-            # Compute ratios
-            ratios = torch.exp(new_log_probs - old_log_probs)
-            
-            # Compute policy loss
-            surr1 = ratios * advantages
-            surr2 = torch.clamp(ratios, 1 - self.epsilon, 1 + self.epsilon) * advantages
-            policy_loss = -torch.min(surr1, surr2).mean()
-            
-            # Compute value loss
-            value_loss = nn.MSELoss()(values.squeeze(), returns)
-            
-            # Total loss
-            total_loss = policy_loss + 0.5 * value_loss
-            
-            # Update
-            self.optimizer.zero_grad()
-            total_loss.backward()
-            self.optimizer.step()
-        
-        return policy_loss.item(), value_loss.item()
-    
-    def train(self, num_iterations=100):
-        for iteration in range(num_iterations):
-            # Collect experience
-            self.collect_experience()
-            
-            # Compute advantages
-            returns, advantages = self.compute_advantages()
-            
-            # Update policy
-            policy_loss, value_loss = self.update_policy(returns, advantages)
-            
-            # Reset storage
-            self.reset_storage()
-            
-            # Print progress with action statistics
-            if iteration % 10 == 0:
-                avg_reward = np.mean(self.rewards) if self.rewards else 0
-                
-                # Calculate action distribution statistics
-                if len(self.actions) > 0:
-                    action_counts = np.bincount(self.actions, minlength=18)
-                    total_actions = len(self.actions)
-                    noop_percentage = (action_counts[0] / total_actions * 100)
-                    active_percentage = 100 - noop_percentage
-                    
-                    print(f"Iteration {iteration:3d}, Avg Reward: {avg_reward:.3f}, "
-                          f"Policy Loss: {policy_loss:.4f}, Value Loss: {value_loss:.4f}")
-                    print(f"  🎮 Action Stats: {active_percentage:.1f}% Active, {noop_percentage:.1f}% NOOP")
-                    
-                    # Show top 3 most used actions
-                    top_actions = np.argsort(action_counts)[-3:][::-1]
-                    action_names = ["NOOP", "Fire", "Up", "Right", "Left", "Down", 
-                                  "Up-Right", "Up-Left", "Down-Right", "Down-Left",
-                                  "Up-Fire", "Right-Fire", "Left-Fire", "Down-Fire",
-                                  "Up-Right-Fire", "Up-Left-Fire", "Down-Right-Fire", "Down-Left-Fire"]
-                    
-                    top_actions_str = ", ".join([f"{action_names[a] if a < len(action_names) else f'A{a}'}: {action_counts[a]}" 
-                                               for a in top_actions if action_counts[a] > 0])
-                    print(f"  📊 Top Actions: {top_actions_str}")
-                else:
-                    print(f"Iteration {iteration:3d}, Avg Reward: {avg_reward:.3f}, "
-                          f"Policy Loss: {policy_loss:.4f}, Value Loss: {value_loss:.4f}")
-            
-            # Save model periodically
-            if iteration % 20 == 0:
-                torch.save(self.network.state_dict(), f'mario_ppo_model_{iteration}.pth')
+        self.cfg = cfg
 
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        print(f"🚀 Device: {self.device}")
+        if torch.cuda.is_available():
+            print(f"   GPU: {torch.cuda.get_device_name(0)} | CUDA: {torch.version.cuda}")
+
+        self.obs_shape = self.env.observation_space.shape  # (stack, 84, 84)
+        self.num_actions = self.env.action_space.n
+
+        self.net = CNNPolicy(self.obs_shape[0], self.num_actions).to(self.device)
+        self.opt = optim.Adam(self.net.parameters(), lr=cfg["learning_rate"])
+
+        # rollout buffers
+        self.reset_storage()
+
+        # episode tracking
+        self.ep_return = 0.0
+        self.ep_returns = []
+
+    def reset_storage(self):
+        self.obs_buf = []
+        self.act_buf = []
+        self.logp_buf = []
+        self.rew_buf = []
+        self.val_buf = []
+        self.done_buf = []
+
+    @torch.no_grad()
+    def choose_action(self, obs_t):
+        logits, value = self.net(obs_t)
+        # optional NOOP bias (action 0)
+        if self.cfg["enable_noop_bias"]:
+            logits = logits.clone()
+            logits[:, 0] -= math.log(self.cfg["noop_bias_factor"])
+        dist = torch.distributions.Categorical(logits=logits)
+        action = dist.sample()
+        logp = dist.log_prob(action)
+        return action, logp, value
+
+    def collect_rollout(self, steps):
+        obs, _ = self.env.reset()
+        for _ in range(steps):
+            obs_t = torch.from_numpy(np.array(obs)).unsqueeze(0).to(self.device)  # [1,C,84,84]
+            action, logp, value = self.choose_action(obs_t)
+
+            next_obs, reward, terminated, truncated, info = self.env.step(action.item())
+            done = terminated or truncated
+
+            self.obs_buf.append(obs_t.squeeze(0).cpu().numpy())
+            self.act_buf.append(action.item())
+            self.logp_buf.append(logp.item())
+            self.rew_buf.append(float(reward))
+            self.val_buf.append(value.item())
+            self.done_buf.append(float(done))
+
+            # episode tracking
+            self.ep_return += float(reward)
+            if done:
+                self.ep_returns.append(self.ep_return)
+                self.ep_return = 0.0
+                next_obs, _ = self.env.reset()
+
+            obs = next_obs
+
+    def compute_gae(self, rewards, values, dones, gamma, lam):
+        """
+        rewards: [T]
+        values:  [T] (no bootstrap value at T)
+        dones:   [T] (1.0 if done)
+        returns: [T]
+        adv:     [T]
+        """
+        T = len(rewards)
+        adv = np.zeros(T, dtype=np.float32)
+        ret = np.zeros(T, dtype=np.float32)
+        next_value = 0.0
+        gae = 0.0
+        for t in reversed(range(T)):
+            nonterminal = 1.0 - dones[t]
+            delta = rewards[t] + gamma * next_value * nonterminal - values[t]
+            gae = delta + gamma * lam * nonterminal * gae
+            adv[t] = gae
+            ret[t] = adv[t] + values[t]
+            next_value = values[t]
+        return ret, adv
+
+    def ppo_update(self):
+        cfg = self.cfg
+
+        # tensors
+        obs = torch.from_numpy(np.array(self.obs_buf)).to(self.device)         # [N, C, 84, 84]
+        acts = torch.tensor(self.act_buf, dtype=torch.long, device=self.device)
+        old_logp = torch.tensor(self.logp_buf, dtype=torch.float32, device=self.device)
+        rews = np.array(self.rew_buf, dtype=np.float32)
+        vals = np.array(self.val_buf, dtype=np.float32)
+        dones = np.array(self.done_buf, dtype=np.float32)
+
+        # returns / advantages
+        ret, adv = self.compute_gae(rews, vals, dones, cfg["gamma"], cfg["gae_lambda"])
+        rets = torch.tensor(ret, dtype=torch.float32, device=self.device)
+        advs = torch.tensor(adv, dtype=torch.float32, device=self.device)
+        # normalize advantages
+        advs = (advs - advs.mean()) / (advs.std() + 1e-8)
+
+        # training loop with minibatches
+        num_samples = obs.shape[0]
+        idxs = np.arange(num_samples)
+
+        policy_loss_hist, value_loss_hist, entropy_hist = [], [], []
+
+        for _ in range(cfg["epochs"]):
+            np.random.shuffle(idxs)
+            for start in range(0, num_samples, cfg["minibatch_size"]):
+                mb = idxs[start:start + cfg["minibatch_size"]]
+                mb_obs = obs[mb]
+                mb_acts = acts[mb]
+                mb_old_logp = old_logp[mb]
+                mb_advs = advs[mb]
+                mb_rets = rets[mb]
+
+                logits, values = self.net(mb_obs)
+                # apply the SAME NOOP biasing rule used during sampling
+                if cfg["enable_noop_bias"]:
+                    logits = logits.clone()
+                    logits[:, 0] -= math.log(cfg["noop_bias_factor"])
+                dist = torch.distributions.Categorical(logits=logits)
+                new_logp = dist.log_prob(mb_acts)
+                entropy = dist.entropy().mean()
+
+                # PPO objective
+                ratio = torch.exp(new_logp - mb_old_logp)
+                surr1 = ratio * mb_advs
+                surr2 = torch.clamp(ratio, 1.0 - cfg["clip_eps"], 1.0 + cfg["clip_eps"]) * mb_advs
+                policy_loss = -torch.min(surr1, surr2).mean()
+
+                value_loss = nn.functional.mse_loss(values, mb_rets)
+
+                loss = policy_loss + cfg["value_coef"] * value_loss - cfg["entropy_coef"] * entropy
+
+                self.opt.zero_grad(set_to_none=True)
+                loss.backward()
+                nn.utils.clip_grad_norm_(self.net.parameters(), cfg["max_grad_norm"])
+                self.opt.step()
+
+                policy_loss_hist.append(policy_loss.item())
+                value_loss_hist.append(value_loss.item())
+                entropy_hist.append(entropy.item())
+
+        # clear buffers
+        self.reset_storage()
+
+        return (
+            float(np.mean(policy_loss_hist)),
+            float(np.mean(value_loss_hist)),
+            float(np.mean(entropy_hist)),
+        )
+
+    def save(self, path):
+        state = {
+            "model": self.net.state_dict(),
+            "optimizer": self.opt.state_dict(),
+            "config": self.cfg,
+        }
+        torch.save(state, path)
+
+# --------------------
+# Main
+# --------------------
 def main():
-    try:
-        # Create environment (same as main.py but without rendering for training)
-        print("Creating Mario Bros environment for training...")
-        env = gym.make("ALE/MarioBros-v5", render_mode=None)  # No rendering for training
-        
-        # Create trainer
-        trainer = PPOTrainer(env)
-        
-        print("Starting PPO training for Mario Bros...")
-        print(f"Action space: {env.action_space.n} actions")
-        print(f"Observation space: {env.observation_space.shape}")
-        print("\nAction mapping for Mario Bros:")
-        print("0: NOOP, 1: Fire, 2: Up, 3: Right, 4: Left, 5: Down")
-        print("6: Up-Right, 7: Up-Left, 8: Down-Right, 9: Down-Left")
-        print("10: Up-Fire, 11: Right-Fire, 12: Left-Fire, 13: Down-Fire")
-        print("14: Up-Right-Fire, 15: Up-Left-Fire, 16: Down-Right-Fire, 17: Down-Left-Fire")
-        
-        # Start training
-        trainer.train(num_iterations=1000)  # Reduced for testing
-        
-        # Save final model
-        torch.save(trainer.network.state_dict(), 'mario_ppo_final.pth')
-        print("Training completed! Model saved as 'mario_ppo_final.pth'")
-        
-        env.close()
-        
-    except Exception as e:
-        print(f"Training error: {e}")
-        import traceback
-        traceback.print_exc()
+    cfg = CONFIG
+    set_seed(cfg["seed"])
+
+    print(f"🎮 Creating environment: {cfg['env_id']}")
+    env = make_env(cfg["env_id"], stack=cfg["num_stack"])
+
+    agent = PPOAgent(env, cfg)
+    print(f"Action space: {env.action_space.n} | Obs shape: {env.observation_space.shape}")
+    print("Action mapping (ALE standard):")
+    print("0: NOOP, 1: Fire, 2: Up, 3: Right, 4: Left, 5: Down")
+    print("6: Up-Right, 7: Up-Left, 8: Down-Right, 9: Down-Left")
+    print("10: Up-Fire, 11: Right-Fire, 12: Left-Fire, 13: Down-Fire")
+    print("14: Up-Right-Fire, 15: Up-Left-Fire, 16: Down-Right-Fire, 17: Down-Left-Fire")
+
+    start_time = time.time()
+    for it in range(cfg["total_iterations"]):
+        agent.collect_rollout(cfg["steps_per_iter"])
+        pol_loss, val_loss, ent = agent.ppo_update()
+
+        if (it % cfg["print_every"]) == 0:
+            avg_ret = np.mean(agent.ep_returns[-10:]) if agent.ep_returns else 0.0
+            print(
+                f"[Iter {it:04d}] "
+                f"AvgEpRet(10): {avg_ret:7.2f} | "
+                f"Policy: {pol_loss:7.4f} | Value: {val_loss:7.4f} | Entropy: {ent:6.4f} | "
+                f"Elapsed: {time.time()-start_time:7.1f}s"
+            )
+
+        if (it % cfg["save_every"]) == 0:
+            path = f"mario_ppo_checkpoint_{it}.pth"
+            agent.save(path)
+            print(f"💾 Saved: {path}")
+
+    # final save
+    agent.save("mario_ppo_final.pth")
+    print("🏁 Training complete. Saved mario_ppo_final.pth")
+    env.close()
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(f"❌ Error: {e}")
+        raise
