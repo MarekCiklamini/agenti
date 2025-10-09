@@ -83,21 +83,9 @@ def make_env(env_id: str, stack: int = 4):
     """
     env = gym.make(env_id, render_mode=None)
     # Don't use frame_skip since ALE/MarioBros-v5 already has frameskip=4
-    env = AtariPreprocessing(env, frame_skip=1, screen_size=84, grayscale_obs=True, scale_obs=False)
+    # Use scale_obs=True to normalize observations to [0,1] range
+    env = AtariPreprocessing(env, frame_skip=1, screen_size=84, grayscale_obs=True, scale_obs=True)
     env = FrameStackObservation(env, stack_size=stack)
-    
-    # Fix for newer gymnasium versions - use scale_obs=True in AtariPreprocessing instead
-    # Or create a custom wrapper
-    from gymnasium import spaces
-    
-    class NormalizeObservation(gym.Wrapper):
-        def __init__(self, env):
-            super().__init__(env)
-            
-        def observation(self, obs):
-            return obs.astype(np.float32) / 255.0
-    
-    env = NormalizeObservation(env)
     return env
 
 # --------------------
