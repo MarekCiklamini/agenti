@@ -199,7 +199,7 @@ class PPOTrainer:
             self.reset_storage()
             
             # Print progress
-            if iteration % 10 == 0:
+            if iteration % 50 == 0:
                 avg_reward = np.mean(self.rewards) if self.rewards else 0
                 print(f"Iteration {iteration}, Avg Reward: {avg_reward:.2f}, "
                       f"Policy Loss: {policy_loss:.4f}, Value Loss: {value_loss:.4f}")
@@ -227,7 +227,7 @@ def main():
         print("14: Up-Right-Fire, 15: Up-Left-Fire, 16: Down-Right-Fire, 17: Down-Left-Fire")
         
         # Start training
-        trainer.train(num_iterations=100)  # Reduced for testing
+        trainer.train(num_iterations=1000)  # Reduced for testing
         
         # Save final model
         torch.save(trainer.network.state_dict(), 'mario_ppo_final.pth')
