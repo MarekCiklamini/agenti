@@ -156,14 +156,17 @@ class PPOAgent:
     @torch.no_grad()
     def choose_action(self, obs_t):
         logits, value = self.net(obs_t)
-        # optional NOOP bias (action 0)
-        if self.cfg["enable_noop_bias"]:
+
+        # Apply a soft NOOP penalty only at logit level
+        if self.cfg.get("enable_noop_bias", True):
             logits = logits.clone()
-            logits[:, 0] -= math.log(self.cfg["noop_bias_factor"])
+            logits[:, 0] -= math.log(self.cfg.get("noop_bias_factor", 5.0))  # reduce NOOP likelihood
+
         dist = torch.distributions.Categorical(logits=logits)
         action = dist.sample()
         logp = dist.log_prob(action)
         return action, logp, value
+
 
     def collect_rollout(self, steps):
         obs, _ = self.env.reset()
@@ -250,9 +253,11 @@ class PPOAgent:
                 # apply the SAME NOOP biasing rule used during sampling
                 if cfg["enable_noop_bias"]:
                     logits = logits.clone()
-                    logits[:, 0] -= math.log(cfg["noop_bias_factor"])
+                    # logits[:, 0] -= math.log(cfg["noop_bias_factor"])
+                    logits[:, 0] -= math.log(self.cfg.get("noop_bias_factor", 5.0))
                 dist = torch.distributions.Categorical(logits=logits)
                 new_logp = dist.log_prob(mb_acts)
+
                 entropy = dist.entropy().mean()
 
                 # PPO objective
