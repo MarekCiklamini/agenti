@@ -43,11 +43,7 @@ def get_speed_mode():
     print("6. 🚁 LUDICROUS - Maximum frame skip (10x faster)")
     print("7. 📊 BENCHMARK - No rendering, pure speed test")
     
-    try:
-        choice = input("Enter choice (1-7) [default: 4]: ").strip() or "4"
-    except (KeyboardInterrupt, EOFError):
-        choice = "7"  # Default to benchmark mode for non-interactive runs
-        print("Using benchmark mode (no rendering)")
+    choice = input("Enter choice (1-7) [default: 4]: ").strip() or "4"
     
     modes = {
         "1": ("slow", 0.05, 1, True),
@@ -86,7 +82,7 @@ def load_and_test_model():
         
         # Try to load different model checkpoints (load before compilation)
         model_files = [
-            'mario_ppo_checkpoint_0.pth'
+            'mario_ppo_checkpoint_40.pth'
             # 'mario_ppo_final.pth',
             # 'mario_ppo_model_100.pth',
             # 'mario_ppo_model_80.pth', 
