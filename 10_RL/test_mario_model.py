@@ -6,11 +6,20 @@ import numpy as np
 import cv2
 import os
 import time
-from train import PPONetwork
+from train import CNNPolicy, make_env
+
+# Register ALE environments
+gym.register_envs(ale_py)
 
 # Performance optimization settings
 torch.backends.cudnn.benchmark = True  # Optimize for consistent input sizes
-torch.set_num_threads(4)  # Optimize CPU usage
+torch.backends.cudnn.deterministic = False  # Allow non-deterministic algorithms for speed
+torch.set_num_threads(6)  # Optimize CPU usage (increased for better performance)
+
+# Additional PyTorch optimizations
+if hasattr(torch.backends, 'opt_einsum'):
+    torch.backends.opt_einsum.enabled = True
+torch.set_float32_matmul_precision('medium')  # Use Tensor Cores if available
 
 # Set SDL environment variables (same as main.py and train.py)
 os.environ['SDL_VIDEO_WINDOW_POS'] = '100,100'
@@ -34,7 +43,11 @@ def get_speed_mode():
     print("6. 🚁 LUDICROUS - Maximum frame skip (10x faster)")
     print("7. 📊 BENCHMARK - No rendering, pure speed test")
     
-    choice = input("Enter choice (1-7) [default: 4]: ").strip() or "4"
+    try:
+        choice = input("Enter choice (1-7) [default: 4]: ").strip() or "4"
+    except (KeyboardInterrupt, EOFError):
+        choice = "7"  # Default to benchmark mode for non-interactive runs
+        print("Using benchmark mode (no rendering)")
     
     modes = {
         "1": ("slow", 0.05, 1, True),
@@ -51,25 +64,36 @@ def get_speed_mode():
 def load_and_test_model():
     try:
         # Load the trained model with optimizations
-        model = PPONetwork((4, 84, 84), 18)
+        model = CNNPolicy(4, 18)  # 4 channels (stacked frames), 18 actions
         
         # Enable optimization modes for faster inference
         torch.set_grad_enabled(False)  # Disable gradient computation globally
+        
+        # GPU setup with detailed info
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         if torch.cuda.is_available():
-            model = model.cuda()  # Use GPU if available
-            print("🚀 Using GPU acceleration!")
+            print("🚀 GPU ACCELERATION ENABLED!")
+            print(f"   GPU: {torch.cuda.get_device_name(0)}")
+            print(f"   CUDA Version: {torch.version.cuda}")
+            memory_gb = torch.cuda.get_device_properties(0).total_memory / 1e9
+            print(f"   Available Memory: {memory_gb:.1f} GB")
+            
+            # Clear GPU memory cache
+            torch.cuda.empty_cache()
+            model = model.cuda()
         else:
             print("💻 Using CPU inference")
         
         # Try to load different model checkpoints (load before compilation)
         model_files = [
-            'mario_ppo_final.pth',
-            'mario_ppo_model_100.pth',
-            'mario_ppo_model_80.pth', 
-            'mario_ppo_model_60.pth',
-            'mario_ppo_model_40.pth',
-            'mario_ppo_model_20.pth',
-            'mario_ppo_model_0.pth'
+            'mario_ppo_checkpoint_0.pth'
+            # 'mario_ppo_final.pth',
+            # 'mario_ppo_model_100.pth',
+            # 'mario_ppo_model_80.pth', 
+            # 'mario_ppo_model_60.pth',
+            # 'mario_ppo_model_40.pth',
+            # 'mario_ppo_model_20.pth',
+            # 'mario_ppo_model_0.pth'
         ]
         
         model_loaded = False
@@ -77,10 +101,18 @@ def load_and_test_model():
             try:
                 if os.path.exists(model_file):
                     print(f"Loading model: {model_file}")
-                    model.load_state_dict(torch.load(model_file))
+                    checkpoint = torch.load(model_file, map_location=device)
+                    # Handle different checkpoint formats
+                    if isinstance(checkpoint, dict) and 'model' in checkpoint:
+                        model.load_state_dict(checkpoint['model'])
+                    else:
+                        model.load_state_dict(checkpoint)
                     model.eval()
                     model_loaded = True
-
+                    
+                    # Apply safe optimizations AFTER loading
+                    print("⚡ Using optimized inference mode!")
+                    
                     break
             except Exception as e:
                 print(f"Failed to load {model_file}: {e}")
@@ -94,15 +126,9 @@ def load_and_test_model():
                     print(f"  - {f}")
             return
         
-        # Create environment with rendering
-        env = gym.make("ALE/MarioBros-v5", render_mode="human")
-        
-        print("🤖 Starting FAST AI Mario Bros Test!")
-        print("⚡ Optimized for speed - The AI will play much faster!")
-        print("🎯 Watch for rapid decision making and movements...")
-        print("\n🎮 Speed Controls:")
-        print("  - Press 'S' during play to toggle slow mode")
-        print("  - Press 'F' for ultra-fast mode")
+        print("🤖 Starting EXTREME SPEED Mario Bros Test!")
+        print("⚡ Multiple speed modes available for ultimate performance!")
+        print("🎯 Watch for lightning-fast decision making...")
         print("\nAction meanings:")
         print("0: NOOP, 1: Fire, 2: Up, 3: Right, 4: Left, 5: Down")
         print("6: Up-Right, 7: Up-Left, 8: Down-Right, 9: Down-Left")
@@ -111,11 +137,19 @@ def load_and_test_model():
         # Interactive speed selection
         speed_name, delay, frame_skip, use_rendering = get_speed_mode()
         
-        # Create environment based on speed mode
-        if not use_rendering:
+        # Create environment based on speed mode using the same setup as training
+        if use_rendering:
+            print(f"🎮 Creating visual environment for {speed_name.upper()} mode...")
+            # Create base environment with rendering
+            env = gym.make("ALE/MarioBros-v5", render_mode="human")
+            # Apply the same preprocessing as training
+            from gymnasium.wrappers.atari_preprocessing import AtariPreprocessing
+            from gymnasium.wrappers import FrameStackObservation
+            env = AtariPreprocessing(env, frame_skip=1, screen_size=84, grayscale_obs=True, scale_obs=True)
+            env = FrameStackObservation(env, stack_size=4)
+        else:
             print("🔥 BENCHMARK MODE: No rendering for maximum speed!")
-            env.close()
-            env = gym.make("ALE/MarioBros-v5", render_mode=None)  # No rendering
+            env = make_env("ALE/MarioBros-v5", stack=4)
         
         # Performance tracking
         total_inference_time = 0
@@ -127,22 +161,14 @@ def load_and_test_model():
         
         # Test the model
         for episode in range(episode_count):
-            state, _ = env.reset()
-            state = preprocess_state(state)
+            # Environment now returns properly stacked and preprocessed frames
+            stacked_obs, _ = env.reset()
             
             episode_reward = 0
             steps = 0
             
             print(f"\n🎮 Episode {episode + 1} - Speed: {speed_name.upper()}")
-            
-            # Initialize frame stack with the first frame
-            frame_stack = np.stack([state] * 4, axis=0)
-            
-            # Pre-convert to tensor for efficiency (reuse same tensor)
-            if torch.cuda.is_available():
-                frame_tensor = torch.cuda.FloatTensor(1, 4, 84, 84)
-            else:
-                frame_tensor = torch.FloatTensor(1, 4, 84, 84)
+            print(f"Observation shape: {stacked_obs.shape}, dtype: {stacked_obs.dtype}")
             
             # Cache last action for frame skipping
             last_action = 0
@@ -154,15 +180,10 @@ def load_and_test_model():
                     action_int = last_action
                     
                     # Skip inference completely
-                    next_state, reward, terminated, truncated, _ = env.step(action_int)
+                    stacked_obs, reward, terminated, truncated, _ = env.step(action_int)
                     done = terminated or truncated
                     episode_reward += reward
                     steps += 1
-                    
-                    # Quick frame update for skipped frames
-                    if not done:
-                        next_state = preprocess_state(next_state)
-                        frame_stack[-1] = next_state  # Only update last frame
                     
                     if done or steps > 2000:  # Increased limit for speed tests
                         break
@@ -171,12 +192,13 @@ def load_and_test_model():
                 # Time the inference for performance measurement
                 inference_start = time.perf_counter()
                 
-                # Ultra-efficient tensor operations
-                np.copyto(frame_tensor.numpy()[0], frame_stack)  # Direct numpy copy
+                # Convert to tensor (observations are already properly stacked and normalized)
+                obs_tensor = torch.from_numpy(stacked_obs).unsqueeze(0).to(device)
                 
                 # FASTEST inference - optimized forward pass
                 with torch.no_grad():
-                    action_probs, value = model(frame_tensor)
+                    logits, value = model(obs_tensor)
+                    action_probs = torch.softmax(logits, dim=-1)
                 
                 # Lightning-fast action selection
                 action_int = int(torch.argmax(action_probs))
@@ -205,16 +227,11 @@ def load_and_test_model():
                     print(f"  Step {steps:3d}: Action {action_int:2d} ({action_name}) - FPS: {fps:.0f}")
                 
                 # Take action in environment
-                next_state, reward, terminated, truncated, info = env.step(action_int)
+                stacked_obs, reward, terminated, truncated, info = env.step(action_int)
                 done = terminated or truncated
                 
                 episode_reward += reward
                 steps += 1
-                
-                # Efficient frame stack update (in-place operations)
-                next_state = preprocess_state(next_state)
-                frame_stack[:-1] = frame_stack[1:]  # Shift frames efficiently
-                frame_stack[-1] = next_state  # Add new frame
                 
                 # Minimal delay control for extreme speeds
                 if delay > 0 and steps % (20 if speed_name == "slow" else 50) == 0:
